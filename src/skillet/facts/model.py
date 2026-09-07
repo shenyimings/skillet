@@ -26,6 +26,7 @@ class Origin(StrEnum):
 
     STATIC = "static"  # a parser derived it; deterministic and exact
     LLM = "llm"  # the labeller asserted it; probabilistic and attackable
+    DERIVED = "derived"  # an engine rule produced it from other facts
 
 
 @dataclass(frozen=True, slots=True, order=True)
