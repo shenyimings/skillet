@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skillet benchmark manifest",
+  "type": "object",
+  "required": ["version", "samples"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "samples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sample" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "required": ["id", "verdict", "provenance", "label_source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Directory name under benchmark/corpus/.",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "verdict": { "enum": ["benign", "suspicious", "malicious"] },
+        "patterns": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(P[1-4]|E[1-4]|PE[1-3]|SC[1-3])$" },
+          "uniqueItems": true,
+          "description": "Primary-axis pattern ids expected to be present."
+        },
+        "credential_patterns": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^(CV[1-4]|CM[1-6])$" },
+          "uniqueItems": true
+        },
+        "provenance": {
+          "enum": ["real_public", "real_disclosed", "reconstructed", "third_party_fixture", "synthetic"]
+        },
+        "label_source": {
+          "enum": ["dataset", "author_review", "upstream_fixture", "case_study"],
+          "description": "How the labels on this row were assigned, so results are never overclaimed."
+        },
+        "source_url": { "type": "string" },
+        "licence": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "comment": "A non-benign verdict must name at least one expected pattern.",
+          "if": { "properties": { "verdict": { "enum": ["suspicious", "malicious"] } } },
+          "then": {
+            "anyOf": [
+              { "required": ["patterns"], "properties": { "patterns": { "minItems": 1 } } },
+              { "required": ["credential_patterns"], "properties": { "credential_patterns": { "minItems": 1 } } }
+            ]
+          }
+        },
+        {
+          "comment": "Third-party or public content must cite where it came from.",
+          "if": { "properties": { "provenance": { "enum": ["real_public", "third_party_fixture", "real_disclosed"] } } },
+          "then": { "required": ["source_url"] }
+        }
+      ]
+    }
+  }
+}

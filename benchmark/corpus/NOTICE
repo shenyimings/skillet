@@ -1,0 +1,4 @@
+Samples with a `-fixture-` component in their directory name are vendored verbatim from
+NVIDIA SkillSpector's test fixtures (https://github.com/NVIDIA/SkillSpector,
+tests/fixtures/), used under the Apache License 2.0. Copyright NVIDIA CORPORATION.
+Upstream paths are recorded per sample as `source_url` in benchmark/manifest.yaml.

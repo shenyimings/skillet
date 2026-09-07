@@ -1,0 +1,99 @@
+# Machine-readable form of docs/taxonomy.md. The benchmark manifest validates against
+# this; the DSL compiler resolves rule `emits:` identifiers against it.
+version: 1
+source:
+  primary: "Liu et al., Agent Skills in the Wild (arXiv 2601.10338); label set as applied in MaliciousAgentSkillsBench v0.2"
+  secondary: "Liu et al., How Your Credentials Are Leaked by LLM Agent Skills (USENIX Security '26, arXiv 2604.03070)"
+
+verdicts: [benign, suspicious, malicious]
+severities: [NONE, LOW, MEDIUM, HIGH, CRITICAL]
+
+families:
+  PI:
+    name: Prompt Injection
+    patterns:
+      P1:
+        name: Instruction Override
+        dataset_label: Instruction Override
+        skillspector_id: P1
+      P2:
+        name: Hidden Instructions
+        dataset_label: Hidden Instructions
+        skillspector_id: P2
+      P3:
+        name: Context Leakage
+        dataset_label: Context Leakage
+        skillspector_id: P3
+      P4:
+        name: Behavior Manipulation
+        dataset_label: Behavior Manipulation
+        skillspector_id: P4
+  EX:
+    name: Data Exfiltration
+    patterns:
+      E1:
+        name: External Transmission
+        dataset_label: External Transmission
+        skillspector_id: E1
+      E2:
+        name: Credential Harvesting
+        dataset_label: Network sniffing / Credential theft
+        skillspector_id: E2
+      E3:
+        name: File System Scan
+        dataset_label: File System Scan
+        skillspector_id: E3
+      E4:
+        name: Context Exfiltration
+        dataset_label: Data Exfiltration
+        skillspector_id: E4
+  PE:
+    name: Privilege Escalation
+    patterns:
+      PE1:
+        name: Excessive Permissions
+        dataset_label: Excessive Permissions
+        skillspector_id: PE1
+      PE2:
+        name: Sudo / Root Execution
+        dataset_label: Privilege Escalation
+        skillspector_id: PE2
+      PE3:
+        name: Credential Access
+        dataset_label: Hardcoded Tokens
+        skillspector_id: PE3
+  SC:
+    name: Supply Chain
+    patterns:
+      SC1:
+        name: Unpinned Dependencies
+        dataset_label: Unpinned Dependencies
+        skillspector_id: SC1
+      SC2:
+        name: Remote Code Execution
+        dataset_label: Remote Code Execution
+        skillspector_id: SC2
+      SC3:
+        name: Code Obfuscation
+        dataset_label: Code Obfuscation
+        skillspector_id: SC3
+
+credential_patterns:
+  CV1: { name: Hardcoded Credentials, intent: vulnerability }
+  CV2: { name: Insecure Storage, intent: vulnerability }
+  CV3: { name: Information Exposure, intent: vulnerability }
+  CV4: { name: Artifact Leakage, intent: vulnerability }
+  CM1: { name: Remote Exploitation, intent: malicious }
+  CM2: { name: Defense Evasion, intent: malicious }
+  CM3: { name: Credential Compromise, intent: malicious }
+  CM4: { name: Data Exfiltration, intent: malicious }
+  CM5: { name: Resource Hijacking, intent: malicious }
+  CM6: { name: Persistence, intent: malicious }
+
+# How a sample's content came to be, in descending order of evidential strength.
+provenance:
+  real_public: Unmodified skill published in a public registry or repository, downloaded from its live URL.
+  real_disclosed: Payload published verbatim in a security write-up or CVE, reproduced with citation.
+  reconstructed: Rebuilt from a case study that describes the behaviour but withholds the payload.
+  third_party_fixture: Vendored from another scanner's test suite under its licence.
+  synthetic: Written for this benchmark to cover a pattern with no available real sample.
