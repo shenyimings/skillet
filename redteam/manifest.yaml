@@ -1,1 +1,31 @@
-attacks: []
+attacks:
+  - id: r1-oversized-file
+    round: 1
+    technique: "payload in >1 MiB unscanned file"
+    goal: exfil
+    needs_llm: false
+  - id: r1-unicode-confusable
+    round: 1
+    technique: "zero-width chars break ASCII regex"
+    goal: exfil
+    needs_llm: false
+  - id: r1-constructed-endpoint
+    round: 1
+    technique: "endpoint built at runtime"
+    goal: exfil
+    needs_llm: false
+  - id: r1-chunk-split-injection
+    round: 1
+    technique: "injection split across heading"
+    goal: injection
+    needs_llm: true
+  - id: r1-include-graph-evasion
+    round: 1
+    technique: "prose file ref, no path token"
+    goal: exfil
+    needs_llm: false
+  - id: r1-whitespace-truncation
+    round: 1
+    technique: "whitespace isolates <40ch payload"
+    goal: injection
+    needs_llm: true

@@ -59,20 +59,52 @@ def chunk_package(package: SkillPackage) -> list[Chunk]:
 
 
 def chunk_file(f: SkillFile) -> list[Chunk]:
-    text = f.text
-    if text is None:
+    if f.text is None:
         return []
+    # Chunk the *normalised* text: blank-run collapse means a payload isolated behind
+    # thousands of blank lines rejoins its neighbours instead of landing in a sub-minimum
+    # window that gets dropped. Chunk offsets are mapped back to raw bytes for spans.
+    norm = f.norm
+    text = norm.text
     if f.suffix in (".md", ".markdown", ".mdx"):
         pieces = _split_markdown(text)
     else:
         pieces = _split_plain(text, kind=_kind_for(f), language=f.language_hint)
+
+    # Section chunking splits at headings, so an instruction deliberately straddling a
+    # heading is torn in half and neither piece reads as an instruction. A second pass of
+    # overlapping windows over the whole prose keeps such an instruction intact in some
+    # window, closing the split-injection gap without giving up per-chunk independence.
+    if _kind_for(f) is ChunkKind.PROSE or f.suffix in (".md", ".markdown", ".mdx"):
+        pieces = [*pieces, *_overlapping_windows(text)]
+
     out: list[Chunk] = []
     for i, (kind, start, body, lang) in enumerate(pieces):
         if len(body.strip()) < MIN_CHUNK_CHARS and kind is ChunkKind.PROSE:
             continue
+        raw_start = norm.to_raw[min(start, len(text))]
         out.append(
-            Chunk(id=f"{f.path}#{i}", file=f.path, kind=kind, text=body, start=start, language=lang)
+            Chunk(
+                id=f"{f.path}#{i}", file=f.path, kind=kind,
+                text=body, start=raw_start, language=lang,
+            )
         )
+    return out
+
+
+def _overlapping_windows(text: str) -> list[tuple[ChunkKind, int, str, str]]:
+    """Half-overlapping windows over the whole text, so a heading-straddling instruction
+    survives intact in at least one window."""
+    step = MAX_CHUNK_CHARS // 2
+    if len(text) <= step:
+        return []
+    out: list[tuple[ChunkKind, int, str, str]] = []
+    for start in range(0, len(text), step):
+        body = text[start : start + MAX_CHUNK_CHARS]
+        if body.strip():
+            out.append((ChunkKind.PROSE, start, body, "markdown"))
+        if start + MAX_CHUNK_CHARS >= len(text):
+            break
     return out
 
 

@@ -48,13 +48,25 @@ def test_every_language_reveals_the_same_resources(filename: str):
 
 
 def test_resource_facts_are_identical_across_languages():
-    # Strip the filename (arg 0) so only the resource identity is compared.
+    # Strip the filename (arg 0) so only the resource identity is compared. NetworkSink is
+    # compared by presence, not payload: its argument is the implementation language, which
+    # is *meant* to differ — what must not differ is that a network capability is seen at all.
     def resources(filename: str) -> set:
-        return {(pred, args[1:]) for pred, args in _facts_for(filename)}
+        out = set()
+        for pred, args in _facts_for(filename):
+            out.add((pred,) if pred == "NetworkSink" else (pred, args[1:]))
+        return out
 
     baseline = resources(LANGUAGES[0])
     for other in LANGUAGES[1:]:
         assert resources(other) == baseline, f"{other} differs from {LANGUAGES[0]}"
+
+
+def test_every_language_reveals_a_network_sink():
+    # The exfil call names a networking API in every language, so an obfuscated endpoint
+    # (no host literal) is still caught by capability.
+    for filename in LANGUAGES:
+        assert any(pred == "NetworkSink" for pred, _ in _facts_for(filename)), filename
 
 
 def test_language_tier_is_additive_only():

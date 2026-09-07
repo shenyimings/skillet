@@ -21,7 +21,7 @@ import math
 import re
 from collections.abc import Iterator
 
-from .model import Fact, Origin, Span, line_of, line_starts
+from .model import Fact, Origin, Span
 from .package import SkillFile, SkillPackage
 
 EXTRACTOR = "literals"
@@ -131,8 +131,23 @@ _UNREMARKABLE_HOSTS = frozenset(
     }
 )
 
+# Network capability, across languages. This is what catches an *obfuscated* endpoint: the
+# host literal may be assembled at runtime and invisible, but the call that sends the data
+# still names a networking API. Presence is a fact, not a verdict — many honest skills make
+# network calls; the engine only alarms when a network sink shares a file with a secret read.
+_NETWORK_SINK = (
+    (r"\burllib\b|\brequests\.\w|\bhttpx\b|\bhttp\.client\b|\baiohttp\b|socket\.socket", "python"),
+    (r"\bfetch\s*\(|XMLHttpRequest|\baxios\b|https?\.request\b|require\(['\"]https?['\"]\)", "js"),
+    (r"net/http|http\.(?:Post|Get|NewRequest)|net\.Dial\b", "go"),
+    (r"\breqwest\b|\bureq\b|TcpStream\b", "rust"),
+    (r"HttpClient\b|HttpURLConnection\b|URLConnection\b|new\s+Socket\b", "java"),
+    (r"Net::HTTP\b|open-uri\b", "ruby"),
+    (r"Invoke-WebRequest\b|Invoke-RestMethod\b|WebClient\b", "powershell"),
+)
+
 _SENSITIVE_PATH_RES = tuple((re.compile(p, re.I), kind) for p, kind in _SENSITIVE_PATHS)
 _COMMAND_RES = tuple((re.compile(p, re.I), name) for p, name in _COMMANDS)
+_NETWORK_SINK_RES = tuple((re.compile(p), lang) for p, lang in _NETWORK_SINK)
 
 
 def shannon_entropy(s: str) -> float:
@@ -153,9 +168,13 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
 
 
 def _scan_file(f: SkillFile) -> Iterator[Fact]:
-    text = f.text
-    assert text is not None  # guaranteed by SkillPackage.scannable()
-    starts = line_starts(text)
+    assert f.text is not None  # guaranteed by SkillPackage.scannable()
+    # Match against the *normalised* view (invisible chars stripped, confusables folded,
+    # blank runs collapsed) so an encoding evasion cannot hide a token, but build every span
+    # through the offset map so it still points at the real bytes of the original file.
+    norm = f.norm
+    text = norm.text
+    raw_starts = norm.raw_line_starts()
 
     def fact(predicate: str, *args: str, at: re.Match[str], confidence: float = 1.0) -> Fact:
         return Fact(
@@ -163,9 +182,28 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
             args=args,
             origin=Origin.STATIC,
             confidence=confidence,
-            span=Span(f.path, at.start(), at.end(), line_of(starts, at.start())),
+            span=norm.span(f.path, at.start(), at.end(), raw_starts),
             extractor=EXTRACTOR,
         )
+
+    # The evasion attempt is itself a signal: honest skills do not fold to a different token.
+    if norm.invisible_stripped:
+        yield Fact("EvasiveEncoding", (f.path, "zero_width"), Origin.STATIC, 1.0,
+                   Span(f.path, 0, 0, 1), EXTRACTOR)
+    if norm.confusables_mapped:
+        yield Fact("EvasiveEncoding", (f.path, "confusable"), Origin.STATIC, 1.0,
+                   Span(f.path, 0, 0, 1), EXTRACTOR)
+    if norm.blank_runs_collapsed:
+        yield Fact("WhitespacePadding", (f.path,), Origin.STATIC, 1.0,
+                   Span(f.path, 0, 0, 1), EXTRACTOR)
+    if f.oversized:
+        yield Fact("OversizedFile", (f.path,), Origin.STATIC, 1.0,
+                   Span(f.path, 0, 0, 1), EXTRACTOR)
+
+    for pattern, lang in _NETWORK_SINK_RES:
+        m = pattern.search(text)
+        if m:
+            yield fact("NetworkSink", f.path, lang, at=m)
 
     for m in _URL.finditer(text):
         host = m.group(1).split(":")[0].lower()

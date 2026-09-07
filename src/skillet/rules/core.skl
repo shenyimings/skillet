@@ -112,3 +112,70 @@ rule obfuscated_payload severity=MEDIUM emits=SC3 {
     mentions_command(F, "base64_decode")
     => "an encoded blob co-occurs with a decode step: possible hidden payload"
 }
+
+# =======================================================================================
+# Round-1 hardening: classes surfaced by the red-team exercise. Each closes a bypass that
+# scored `benign` before, and is a class (a fact type) rather than a single string.
+
+# A file reads a sensitive resource (static lemma reused across the package rules).
+sensitive_file(F) :- mentions_sensitive_path(F, _).
+sensitive_file(F) :- mentions_env_key(F, _).
+
+# Obfuscated endpoint: the host literal is assembled at runtime so no host fact exists, but
+# the file still reads a secret AND names a networking API. Capability + secret in one file.
+rule exfil_network_sink severity=HIGH emits=E1 {
+    sensitive_file(F)
+    network_sink(F, _)
+    => "one file reads a sensitive resource and holds a network-send capability"
+}
+
+# Cross-file exfil with no include edge: the read half and the send half sit in different
+# bundled files that nothing links, but the agent loads the whole package as one unit, so
+# co-presence in the same skill is itself the reachability. Weaker (MEDIUM) than a linked
+# chain because co-presence is circumstantial.
+skill_reads_sensitive(S) :- file(S, F, _), sensitive_file(F).
+skill_has_egress(S) :- file(S, F, _), mentions_external_host(F, _).
+skill_has_egress(S) :- file(S, F, _), network_sink(F, _).
+
+rule exfil_across_package severity=MEDIUM emits=E1 {
+    skill_reads_sensitive(S)
+    skill_has_egress(S)
+    => "the skill reads a sensitive resource in one file and can send data from another"
+}
+
+# Encoding evasion is not a grey area: honest skills do not hide a zero-width space or a
+# look-alike letter inside a security token. The attempt is the finding.
+rule evasive_encoding severity=HIGH emits=P2 {
+    evasive_encoding(F, _)
+    => "security-relevant text is obfuscated with zero-width or look-alike characters"
+}
+
+# A large run of blank lines pushes content out of a reviewer's view (and used to drop it
+# from the scanner). Padding of that kind has no honest purpose in a skill.
+rule whitespace_padding severity=MEDIUM emits=P2 {
+    whitespace_padding(F)
+    => "a large whitespace run is used to hide content from review"
+}
+
+# A file too large to fully scan is a place to hide a payload; shipping a megabyte-plus
+# script in a skill is itself worth a look.
+rule oversized_file severity=MEDIUM emits=SC3 {
+    oversized_file(F)
+    => "an oversized file exceeds the scan cap and may hide a payload past it"
+}
+
+# "Do not mention this to the user" is, per the literature, the single clearest tell of a
+# malicious skill. Concealment on its own is therefore suspicious; paired with a
+# persistence or authority claim it is a full injection.
+rule conceal_directive severity=MEDIUM emits=P4 min_confidence=0.5 {
+    concealment(A)
+    => "the skill asks the agent to hide its instructions or actions from the user"
+}
+
+rule injection_persist severity=HIGH emits=P1 min_confidence=0.4 {
+    persistence(A)
+    in_file(A, F)
+    concealment(B)
+    in_file(B, F)
+    => "instructions declared standing/persistent while asking to stay hidden from the user"
+}

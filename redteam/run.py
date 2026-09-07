@@ -14,6 +14,9 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import build_fixtures
 
 from skillet.facts.package import SkillPackage
 from skillet.pipeline import scan
@@ -27,6 +30,7 @@ def main() -> int:
     ap.add_argument("--llm", action="store_true", help="also run the semantic tier")
     ap.add_argument("--round", type=int, help="only this round")
     args = ap.parse_args()
+    build_fixtures.build()
 
     client = None
     if args.llm:

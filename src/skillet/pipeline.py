@@ -69,13 +69,18 @@ def scan(
     *,
     client: Completion | None = None,
     rules: list[Rule] | None = None,
+    passes: int = 3,
 ) -> ScanReport:
-    """Scan a loaded skill package. With a client, the semantic tier runs too."""
+    """Scan a loaded skill package. With a client, the semantic tier runs too.
+
+    `passes` labels each chunk several times and unions the facts, trading calls for recall
+    over the nondeterministic labeller; it only matters when `client` is set.
+    """
     rules = rules if rules is not None else load_rules()
 
     facts = extract(package, tiers={Tier.AGNOSTIC, Tier.LANGUAGE})
     if client is not None:
-        facts.extend(label_package(package, client))
+        facts.extend(label_package(package, client, passes=passes))
 
     result = evaluate(facts, rules)
     alerts = _collect_alerts(result, rules)

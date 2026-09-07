@@ -30,7 +30,7 @@ packages = ["src/skillet"]
 line-length = 100
 target-version = "py311"
 # Deliberately-malformed attack samples: they must stay verbatim, not be "fixed".
-extend-exclude = ["tests/fixtures", "benchmark/corpus"]
+extend-exclude = ["tests/fixtures", "benchmark/corpus", "redteam/attacks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

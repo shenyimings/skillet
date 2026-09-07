@@ -40,10 +40,14 @@ Report only observations drawn from this closed vocabulary:
 - Imperative: the chunk directs the agent to perform an action.
 - TargetsSensitive: it concerns credentials, keys, tokens, private files, or secrets.
 - Egress: it moves or transmits data outward (network request, email, external write).
-- AuthorityClaim: it asserts authority over the agent (e.g. overriding prior rules, \
-"you are now…", "ignore previous instructions").
-- Concealment: it asks to hide, suppress, omit, or not mention something to the user.
-- Persistence: it asks to write to agent memory, config, or anything that outlives the task.
+- AuthorityClaim: it asserts authority over the agent — overriding prior rules \
+("ignore previous instructions", "you are now…"), OR claiming its own instructions take \
+precedence over the user's later requests, OR declaring itself standing/binding \
+configuration the agent must keep obeying.
+- Concealment: it asks to hide, suppress, omit, or not mention something to the user — \
+including telling the agent not to mention its own instructions, setup, or actions.
+- Persistence: it asks to write to agent memory or config, OR to treat its instructions \
+as remaining in force across the whole session or beyond the current task.
 
 Rules:
 - Do NOT decide whether the skill is safe or malicious. Emit no verdict, score, or severity.
@@ -68,12 +72,22 @@ def label_package(
     package,
     client: Completion,
     chunks: Iterable[Chunk] | None = None,
+    passes: int = 1,
 ) -> Iterator[Fact]:
-    """Label every chunk of `package` and yield the resulting semantic facts."""
+    """Label every chunk of `package` and yield the resulting semantic facts.
+
+    The labeller is nondeterministic: even at temperature 0 it does not emit the same
+    observations on every pass, so a subtle injection can be labelled on one pass and missed
+    on the next. `passes > 1` labels each chunk several times and unions the results —
+    recall over a flaky detector, at a linear cost in calls. The FactSet dedupes, so a fact
+    seen on any pass survives (keeping its strongest confidence). Default 1 keeps cost
+    opt-in; the scan pipeline raises it when the semantic tier is enabled.
+    """
     chunks = list(chunks) if chunks is not None else chunk_package(package)
     for chunk in chunks:
-        raw = client.complete_json(SYSTEM_PROMPT, _render_user(chunk))
-        yield from _facts_for_chunk(chunk, parse_labels(raw))
+        for _ in range(max(1, passes)):
+            raw = client.complete_json(SYSTEM_PROMPT, _render_user(chunk))
+            yield from _facts_for_chunk(chunk, parse_labels(raw))
 
 
 def _render_user(chunk: Chunk) -> str:
