@@ -112,24 +112,28 @@ _BARE_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?")
 _BLOB = re.compile(r"[A-Za-z0-9+/=_-]{48,}")
 _HEX_BLOB = re.compile(r"(?:\\x[0-9a-fA-F]{2}){12,}|\b[0-9a-fA-F]{64,}\b")
 
-# Hosts that are noise: documentation ranges, package registries, the user's own machine.
-_UNREMARKABLE_HOSTS = frozenset(
+# Only genuinely non-egress destinations are suppressed from MentionsExternalHost — the
+# machine itself. Everything else, github and the registries included, still produces the
+# fact: an allowlist may lower a rule's weight, but it must never erase evidence, because a
+# code-hosting or paste host is a perfectly good exfil/dead-drop channel. See PACKAGE_HOSTS.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})
+
+# Package registries are tagged, not hidden. A rule can down-weight "pip install from pypi",
+# but "curl raw.githubusercontent.com/.../p.sh | sh" must still be visible — hence a tag on
+# the side rather than removal from the external-host stream.
+_PACKAGE_HOSTS = frozenset(
     {
-        "localhost",
-        "example.com",
-        "example.net",
-        "example.org",
-        "github.com",
-        "raw.githubusercontent.com",
         "pypi.org",
         "files.pythonhosted.org",
         "registry.npmjs.org",
         "crates.io",
         "proxy.golang.org",
-        "schema.org",
-        "www.w3.org",
     }
 )
+
+# Documentation ranges (RFC 2606 / example.*) are the only hostnames that are genuinely not
+# a destination — they exist precisely so they resolve nowhere. Kept out of egress facts.
+_DOC_HOSTS = frozenset({"example.com", "example.net", "example.org", "schema.org", "www.w3.org"})
 
 # Network capability, across languages. This is what catches an *obfuscated* endpoint: the
 # host literal may be assembled at runtime and invisible, but the call that sends the data
@@ -208,7 +212,12 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
     for m in _URL.finditer(text):
         host = m.group(1).split(":")[0].lower()
         yield fact("MentionsHost", f.path, host, at=m)
-        if host not in _UNREMARKABLE_HOSTS:
+        if host in _PACKAGE_HOSTS:
+            yield fact("PackageRegistry", f.path, host, at=m)
+        # Everything that is not the local machine or a documentation placeholder is a real
+        # egress destination — code hosts and registries included. Rules, not this scan,
+        # decide whether a given destination in context is benign.
+        if host not in _LOCAL_HOSTS and host not in _DOC_HOSTS:
             yield fact("MentionsExternalHost", f.path, host, at=m)
 
     for m in _BARE_IPV4.finditer(text):
@@ -216,6 +225,8 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
         if _is_routable_literal(ip):
             yield fact("MentionsHost", f.path, ip, at=m)
             yield fact("MentionsExternalHost", f.path, ip, at=m)
+            if _is_metadata_endpoint(ip):
+                yield fact("MentionsSensitivePath", f.path, "cloud_metadata", at=m)
 
     for pattern, kind in _SENSITIVE_PATH_RES:
         for m in pattern.finditer(text):
@@ -257,3 +268,8 @@ def _is_routable_literal(ip: str) -> bool:
     if len(parts) != 4 or any(not p.isdigit() or int(p) > 255 for p in parts):
         return False
     return parts[0] not in ("0", "127")
+
+
+def _is_metadata_endpoint(ip: str) -> bool:
+    """The cloud instance-metadata address — reading it is credential access, not egress."""
+    return ip in ("169.254.169.254", "100.100.100.200")
