@@ -1,0 +1,38 @@
+[project]
+name = "skillet"
+version = "0.1.0"
+description = "Security detector for LLM agent skills: LLM extracts facts, Datalog decides."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+llm = ["httpx>=0.27", "python-dotenv>=1.0"]
+dev = ["pytest>=8.2", "ruff>=0.6", "jsonschema>=4.22"]
+
+[project.scripts]
+skillet = "skillet.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skillet"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
