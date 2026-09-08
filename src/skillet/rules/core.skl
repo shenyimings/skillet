@@ -16,56 +16,52 @@
 flow(A, B) :- in_file(A, F), in_file(B, F).
 flow(A, B) :- in_file(A, F1), includes(F1, F2), in_file(B, F2).
 flow(A, C) :- flow(A, B), flow(B, C).
+# Weak reachability: two loci merely in the same package, no edge. Used only where the
+# source is a strong secret, so it does not blanket every read+send pair.
 co_in_skill(A, B) :- in_file(A, X), in_file(B, Y).
 
-# A read of any sensitive resource class (the exfiltration source set).
-sensitive_read(A) :- read(A, secret).
-sensitive_read(A) :- read(A, personal).
-
 # ---------------------------------------------------------------------------------------
-# Exfiltration: a sensitive read that reaches an outward send. "Outward" is Net(out) for
-# EVERY channel — http, DNS, scp, git push, email — so one rule covers them all.
+# Exfiltration: a STRONG secret (a credential file, a broad environment harvest, a cloud-
+# metadata read, or anything the LLM judged sensitive) that reaches an outward send.
+# "Outward" is Net(out) for EVERY channel — http, DNS, scp, git push, email. Reading one
+# named API key and calling an API is NOT a strong secret, so it does not fire here — that
+# is the commonest benign pattern and is left to the LLM to adjudicate. `flow` is same-file
+# or an include edge, never mere co-presence.
 rule exfiltration severity=HIGH emits=E1 min_confidence=0.4 {
-    sensitive_read(A)
+    strong_secret(A)
     flow(A, B)
     net(B, out)
-    => "sensitive data is read and then sent outward"
+    => "a credential or private resource is read and then sent outward"
 }
 
-# Same read, but the send is only co-present (no dataflow edge) or an unclassified network
-# capability — circumstantial, so MEDIUM rather than HIGH.
+# A strong secret and an outward send that merely co-exist in the same skill, with no
+# dataflow edge linking their files. Circumstantial, so MEDIUM — but a credential-file read
+# is rare enough in a benign skill that co-presence with egress is worth surfacing. (This is
+# gated on strong_secret, not any read, so it does not fire on ordinary API-key + request.)
 rule exfiltration_copresent severity=MEDIUM emits=E1 min_confidence=0.4 {
-    sensitive_read(A)
+    strong_secret(A)
     co_in_skill(A, B)
     net(B, out)
-    => "the skill reads sensitive data and can send it outward from another file"
-}
-rule exfiltration_capability severity=MEDIUM emits=E1 min_confidence=0.4 {
-    sensitive_read(A)
-    flow(A, B)
-    net(B, unknown)
-    => "a sensitive read shares a file with an unclassified network capability"
+    => "the skill reads a credential in one file and can send data outward from another"
 }
 
 # ---------------------------------------------------------------------------------------
-# Remote code execution and reverse shells.
-rule rce severity=HIGH emits=SC2 min_confidence=0.4 {
-    net(A, in)
-    flow(A, B)
-    exec(B)
-    => "content is fetched from the network and then executed"
+# Remote code execution and reverse shells. All require the two halves at the SAME locus,
+# so "downloads a dependency here, runs the build there" (ordinary dev work) does not fire.
+rule rce severity=HIGH emits=SC2 {
+    pipe_to_shell(A)
+    => "remote content is piped directly into a shell (curl ... | sh)"
 }
 rule reverse_shell severity=HIGH emits=SC2 min_confidence=0.4 {
     exec(A)
-    flow(A, B)
-    net(B, out)
-    => "a process is spawned and wired to an outbound connection (reverse shell)"
+    net(A, out)
+    attr(A, channel, socket)
+    => "one locus spawns a process and opens a raw outbound socket (reverse shell)"
 }
 rule exec_obfuscated severity=HIGH emits=SC3 min_confidence=0.4 {
     exec(A)
-    flow(A, B)
-    obfuscation(B, encoded)
-    => "an execution sink is fed an encoded payload"
+    obfuscation(A, encoded)
+    => "one locus both executes and holds an encoded payload"
 }
 
 # ---------------------------------------------------------------------------------------
@@ -89,7 +85,8 @@ rule deception severity=HIGH emits=P4 min_confidence=0.4 {
 # Persistence.
 rule persistence_write severity=MEDIUM emits=P4 min_confidence=0.4 {
     write(A, agent_state)
-    => "the skill writes to agent memory or shell/agent configuration"
+    attr(A, write_kind, shell_rc)
+    => "the skill writes to a shell startup file (persistence across sessions)"
 }
 rule persistence_claim severity=MEDIUM emits=P4 min_confidence=0.4 {
     claim(A, persist)

@@ -144,6 +144,17 @@ def _facts_for_chunk(chunk: Chunk, labels: list[Label]) -> Iterator[Fact]:
             span=span,
             extractor=EXTRACTOR,
         )
+        # A sensitive read the LLM asserted already carries its judgement of intent, so it
+        # seeds exfiltration as a strong secret (unlike a static single-env-var read).
+        if label.observation in ("reads_sensitive", "reads_personal"):
+            yield Fact(
+                predicate="StrongSecret",
+                args=(chunk.id,),
+                origin=Origin.LLM,
+                confidence=label.confidence,
+                span=span,
+                extractor=EXTRACTOR,
+            )
         # A chunk-scoped locator fact, so rules can tie a semantic observation to its file
         # and join it against the include graph for cross-file reachability.
         yield Fact(
