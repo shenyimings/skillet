@@ -1,0 +1,61 @@
+attacks:
+  - id: r1-oversized-file
+    round: 1
+    technique: "payload in >1 MiB unscanned file"
+    goal: exfil
+    needs_llm: false
+  - id: r1-unicode-confusable
+    round: 1
+    technique: "zero-width chars break ASCII regex"
+    goal: exfil
+    needs_llm: false
+  - id: r1-constructed-endpoint
+    round: 1
+    technique: "endpoint built at runtime"
+    goal: exfil
+    needs_llm: false
+  - id: r1-chunk-split-injection
+    round: 1
+    technique: "injection split across heading"
+    goal: injection
+    needs_llm: true
+  - id: r1-include-graph-evasion
+    round: 1
+    technique: "prose file ref, no path token"
+    goal: exfil
+    needs_llm: false
+  - id: r1-whitespace-truncation
+    round: 1
+    technique: "whitespace isolates <40ch payload"
+    goal: injection
+    needs_llm: true
+  - id: r2-dns-exfil
+    round: 2
+    technique: "exfil via DNS lookups (no sink)"
+    goal: exfil
+    needs_llm: false
+  - id: r2-unknown-secret
+    round: 2
+    technique: "reads credential store not in tables"
+    goal: exfil
+    needs_llm: false
+  - id: r2-scp-channel
+    round: 2
+    technique: "exfil via scp user@host:path"
+    goal: exfil
+    needs_llm: false
+  - id: r2-git-commit-exfil
+    round: 2
+    technique: "secret committed + git push"
+    goal: exfil
+    needs_llm: false
+  - id: r2-shellrc-persist
+    round: 2
+    technique: "persistence via ~/.bashrc append"
+    goal: persistence
+    needs_llm: false
+  - id: r2-split-semantic
+    round: 2
+    technique: "injection split across two files"
+    goal: injection
+    needs_llm: true

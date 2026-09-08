@@ -13,7 +13,9 @@ from rich.table import Table
 
 from . import baselines
 from .benchmark import load
+from .detector import engine_detector
 from .evaluator import Report, evaluate
+from .pipeline import scan_path
 
 app = typer.Typer(add_completion=False, help="Security detector for LLM agent skills.")
 console = Console()
@@ -21,6 +23,8 @@ console = Console()
 _DETECTORS = {
     "keyword": baselines.keyword_baseline,
     "always-benign": baselines.always_benign,
+    "engine-static": engine_detector(use_llm=False),
+    "engine-llm": engine_detector(use_llm=True),
 }
 
 
@@ -69,15 +73,42 @@ def list_samples() -> None:
 
 
 @app.command()
-def scan(path: str) -> None:
-    """Scan a skill directory. Not implemented until the engine lands."""
-    raise typer.Exit(
+def scan(
+    path: str,
+    llm: bool = typer.Option(False, "--llm", help="also run the semantic (LLM) tier"),
+    show_facts: bool = typer.Option(False, help="print the derived fact base"),
+) -> None:
+    """Scan a skill directory and print an audited report."""
+    client = None
+    if llm:
+        from .llm.client import DeepSeekClient
+
+        client = DeepSeekClient()
+    report = scan_path(path, client=client)
+
+    colour = {"benign": "green", "suspicious": "yellow", "malicious": "red"}[report.verdict]
+    console.print(f"\n[bold]{report.skill}[/bold]: [{colour}]{report.verdict.upper()}[/{colour}]")
+    if not report.alerts:
+        console.print("  no findings")
+    for a in report.alerts:
+        where = ", ".join(str(s) for s in a.spans[:4]) or "-"
         console.print(
-            "[yellow]scan is not implemented yet — the fact/DSL/engine layers "
-            "are next. Use `skillet bench` to exercise the evaluator.[/yellow]"
+            f"\n  [{colour}]{a.severity}[/{colour}] {a.rule} "
+            f"([cyan]{a.kind or '-'}[/cyan], conf={a.confidence:.2f})"
         )
-        or 1
-    )
+        console.print(f"    {a.message}")
+        console.print(f"    at: {where}")
+        console.print("[dim]" + _indent(a.justification, 4) + "[/dim]")
+
+    if show_facts and report.facts is not None:
+        console.print("\n[bold]facts[/bold]")
+        for f in sorted(report.facts, key=lambda x: (x.predicate, x.args)):
+            console.print(f"  {f}  [dim]({f.origin}, {f.confidence:.2f})[/dim]")
+
+
+def _indent(text: str, n: int) -> str:
+    pad = " " * n
+    return "\n".join(pad + line for line in text.splitlines())
 
 
 if __name__ == "__main__":

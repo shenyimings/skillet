@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
+from .normalize import Normalized, normalize
+
 # Read caps. A skill that ships a 10 MB blob is interesting for that fact alone; we record
 # it and move on rather than trying to scan it.
 MAX_FILE_BYTES = 1 << 20
@@ -62,11 +64,19 @@ def is_probably_text(data: bytes) -> bool:
 
 @dataclass(frozen=True)
 class SkillFile:
-    """One file in the package, with its text if it has any."""
+    """One file in the package, with its text if it has any.
+
+    `text` is the raw content of the part we read; `oversized` records that the file
+    exceeded the read cap and only a bounded prefix is present, so a payload hidden past
+    the cap is still partly scanned and always flagged rather than silently skipped.
+    `norm` is the normalised view (invisible/confusable folding, blank-run collapse) that
+    the scanners match against; its offset map turns a normalised hit back into a raw span.
+    """
 
     path: str  # POSIX-style, relative to the package root
     size: int
-    text: str | None  # None for binary or oversized files
+    text: str | None  # None only for binary files; a bounded prefix for oversized ones
+    oversized: bool = False
 
     @property
     def suffix(self) -> str:
@@ -80,6 +90,11 @@ class SkillFile:
     @property
     def scannable(self) -> bool:
         return self.text is not None
+
+    @cached_property
+    def norm(self) -> Normalized:
+        """The normalised, offset-mapped view used for matching. Empty for binary files."""
+        return normalize(self.text or "")
 
 
 @dataclass
@@ -150,7 +165,12 @@ class SkillPackage:
 def _read(path: Path, rel: str) -> SkillFile:
     size = path.stat().st_size
     if size > MAX_FILE_BYTES:
-        return SkillFile(path=rel, size=size, text=None)
+        # Do not skip an oversized file — read a bounded prefix so a payload padded past
+        # the cap is still partly scanned, and mark it so a rule can flag the padding.
+        with path.open("rb") as fh:
+            head = fh.read(MAX_FILE_BYTES)
+        text = head.decode("utf-8", errors="ignore") if is_probably_text(head) else None
+        return SkillFile(path=rel, size=size, text=text, oversized=True)
     data = path.read_bytes()
     text = data.decode("utf-8") if is_probably_text(data) else None
     return SkillFile(path=rel, size=size, text=text)

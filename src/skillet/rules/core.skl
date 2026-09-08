@@ -1,0 +1,127 @@
+# skillet v2 rule set — composition over primitives.
+#
+# Facts are primitives (Read/Write/Exec/Net/Flow/Claim/Declares/Obfuscation over a small
+# resource lattice), emitted by BOTH the static scanner and the LLM labeller. Rules compose
+# them, so a novel resource or channel that either tier classifies into the vocabulary is
+# caught by the same rule — no per-attack predicate. Every alert is still traceable to the
+# facts and source spans that produced it.
+#
+# Convention: Capitalized = variable, snake_case = predicate (PascalCased to the fact name),
+# _ = fresh don't-care, bare lowercase = constant.
+
+# ---------------------------------------------------------------------------------------
+# Reachability. Flow is the taint/control graph: same file, across an include edge, and
+# transitively. co_in_skill is weak reachability — two loci merely in the same package,
+# with no edge linking them (the agent still loads the whole skill as one unit).
+flow(A, B) :- in_file(A, F), in_file(B, F).
+flow(A, B) :- in_file(A, F1), includes(F1, F2), in_file(B, F2).
+flow(A, C) :- flow(A, B), flow(B, C).
+co_in_skill(A, B) :- in_file(A, X), in_file(B, Y).
+
+# A read of any sensitive resource class (the exfiltration source set).
+sensitive_read(A) :- read(A, secret).
+sensitive_read(A) :- read(A, personal).
+
+# ---------------------------------------------------------------------------------------
+# Exfiltration: a sensitive read that reaches an outward send. "Outward" is Net(out) for
+# EVERY channel — http, DNS, scp, git push, email — so one rule covers them all.
+rule exfiltration severity=HIGH emits=E1 min_confidence=0.4 {
+    sensitive_read(A)
+    flow(A, B)
+    net(B, out)
+    => "sensitive data is read and then sent outward"
+}
+
+# Same read, but the send is only co-present (no dataflow edge) or an unclassified network
+# capability — circumstantial, so MEDIUM rather than HIGH.
+rule exfiltration_copresent severity=MEDIUM emits=E1 min_confidence=0.4 {
+    sensitive_read(A)
+    co_in_skill(A, B)
+    net(B, out)
+    => "the skill reads sensitive data and can send it outward from another file"
+}
+rule exfiltration_capability severity=MEDIUM emits=E1 min_confidence=0.4 {
+    sensitive_read(A)
+    flow(A, B)
+    net(B, unknown)
+    => "a sensitive read shares a file with an unclassified network capability"
+}
+
+# ---------------------------------------------------------------------------------------
+# Remote code execution and reverse shells.
+rule rce severity=HIGH emits=SC2 min_confidence=0.4 {
+    net(A, in)
+    flow(A, B)
+    exec(B)
+    => "content is fetched from the network and then executed"
+}
+rule reverse_shell severity=HIGH emits=SC2 min_confidence=0.4 {
+    exec(A)
+    flow(A, B)
+    net(B, out)
+    => "a process is spawned and wired to an outbound connection (reverse shell)"
+}
+rule exec_obfuscated severity=HIGH emits=SC3 min_confidence=0.4 {
+    exec(A)
+    flow(A, B)
+    obfuscation(B, encoded)
+    => "an execution sink is fed an encoded payload"
+}
+
+# ---------------------------------------------------------------------------------------
+# Prompt injection / agent manipulation (mostly LLM-supplied claims).
+rule injection severity=HIGH emits=P1 min_confidence=0.4 {
+    claim(A, authority)
+    flow(A, B)
+    claim(B, conceal)
+    => "an authority claim is paired with a request to conceal behaviour from the user"
+}
+rule conceal_directive severity=MEDIUM emits=P4 min_confidence=0.5 {
+    claim(A, conceal)
+    => "the skill asks the agent to hide its instructions or actions from the user"
+}
+rule deception severity=HIGH emits=P4 min_confidence=0.4 {
+    claim(A, deceive)
+    => "the skill misrepresents to the user what it does"
+}
+
+# ---------------------------------------------------------------------------------------
+# Persistence.
+rule persistence_write severity=MEDIUM emits=P4 min_confidence=0.4 {
+    write(A, agent_state)
+    => "the skill writes to agent memory or shell/agent configuration"
+}
+rule persistence_claim severity=MEDIUM emits=P4 min_confidence=0.4 {
+    claim(A, persist)
+    => "the skill declares its instructions standing or persistent"
+}
+
+# ---------------------------------------------------------------------------------------
+# Over-privilege (declared capability the purpose does not justify).
+rule overprivilege_wildcard severity=MEDIUM emits=PE1 {
+    declares(S, wildcard)
+    => "the skill grants a wildcard tool permission (e.g. Bash(*))"
+}
+rule overprivilege_unattended severity=HIGH emits=PE1 {
+    declares(S, unattended)
+    => "the skill runs in an unattended permission mode (bypassPermissions / acceptEdits)"
+}
+
+# ---------------------------------------------------------------------------------------
+# The evasion attempt is itself the finding.
+rule evasion_confusable severity=HIGH emits=P2 {
+    obfuscation(A, confusable)
+    => "security-relevant text is obfuscated with look-alike characters"
+}
+rule evasion_zero_width severity=HIGH emits=P2 {
+    obfuscation(A, zero_width)
+    => "security-relevant text is obfuscated with zero-width characters"
+}
+rule evasion_padding severity=MEDIUM emits=P2 {
+    obfuscation(A, padding)
+    => "a large whitespace run is used to hide content from review"
+}
+rule evasion_oversize severity=MEDIUM emits=SC3 {
+    obfuscation(A, oversize)
+    => "an oversized file exceeds the scan cap and may hide a payload past it"
+}

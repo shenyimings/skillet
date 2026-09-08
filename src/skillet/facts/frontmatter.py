@@ -63,29 +63,19 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
         yield fact("MalformedFrontmatter", package.name)
         return
 
-    for key, value in meta.items():
-        yield fact("Frontmatter", package.name, str(key), _stringify(value))
+    if not meta.get("description"):
+        yield fact("Declares", package.name, "no_description")
 
-    if name := meta.get("name"):
-        yield fact("SkillName", package.name, str(name))
-    if description := meta.get("description"):
-        yield fact("SkillDescription", package.name, str(description))
-    else:
-        yield fact("NoDescription", package.name)
-
+    # Declared capability grants — the "declared" half of over-privilege. Kept general:
+    # each tool is a Declares(skill, <tool>), with wildcard / unattended flagged as such.
     for tool in _tools(meta):
-        yield fact("AllowedTool", package.name, tool)
+        yield fact("Declares", package.name, tool.lower())
         if _WILDCARD_TOOL.search(tool):
-            yield fact("WildcardTool", package.name, tool)
+            yield fact("Declares", package.name, "wildcard")
 
     mode = meta.get("permissionMode") or meta.get("permission_mode")
-    if mode:
-        yield fact("PermissionMode", package.name, str(mode))
-        if str(mode).replace("-", "").replace("_", "").lower() in _UNATTENDED_MODES:
-            yield fact("UnattendedPermissionMode", package.name, str(mode))
-
-    for trigger in _sequence(meta.get("triggers")):
-        yield fact("Trigger", package.name, trigger)
+    if mode and str(mode).replace("-", "").replace("_", "").lower() in _UNATTENDED_MODES:
+        yield fact("Declares", package.name, "unattended")
 
 
 def _tools(meta: dict) -> Iterator[str]:

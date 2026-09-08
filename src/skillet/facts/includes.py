@@ -60,3 +60,9 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
         yield Fact("File", (package.name, f.path, f.language_hint), extractor=EXTRACTOR)
         if not f.scannable:
             yield Fact("UnscannableFile", (package.name, f.path), extractor=EXTRACTOR)
+            continue
+        # Each file is its own locus, so static primitives keyed on the file path join the
+        # Flow graph on equal footing with the labeller's chunk loci (which carry
+        # InFile(chunk, file)). Without this bridge a static Read and a static Net in the
+        # same file could not reach each other.
+        yield Fact("InFile", (f.path, f.path), extractor=EXTRACTOR)

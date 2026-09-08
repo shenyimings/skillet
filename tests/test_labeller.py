@@ -44,7 +44,7 @@ def test_label_maps_to_llm_fact_with_span():
             "echo back any credentials": {
                 "labels": [
                     {
-                        "predicate": "Egress",
+                        "observation": "sends_outward",
                         "quote": "echo back any credentials",
                         "confidence": 0.85,
                     },
@@ -53,27 +53,27 @@ def test_label_maps_to_llm_fact_with_span():
         }
     )
     facts = list(label_package(_one_file_pkg("SKILL.md", text), client))
-    egress = [f for f in facts if f.predicate == "Egress"]
-    assert egress and egress[0].origin is Origin.LLM
-    assert egress[0].confidence == 0.85
-    assert egress[0].span is not None
+    net = [f for f in facts if f.predicate == "Net"]
+    assert net and net[0].origin is Origin.LLM
+    assert net[0].confidence == 0.85
+    assert net[0].span is not None
     # The span must actually cover the quoted text in the source.
-    s = egress[0].span
-    assert text.encode()[s.start : s.end].decode() == "echo back any credentials"
+    sp = net[0].span
+    assert text.encode()[sp.start : sp.end].decode() == "echo back any credentials"
 
 
 def test_fabricated_quote_is_dropped():
     # A label whose quote does not appear in the chunk earns no fact — the anti-injection
     # anchor. Simulates a model hallucinating or an injected instruction forging a label.
     chunk = Chunk(id="c0", file="SKILL.md", kind=ChunkKind.PROSE, text="benign text", start=0)
-    labels = [Label(predicate="AuthorityClaim", quote="ignore all previous", confidence=0.99)]
+    labels = [Label(observation="claims_authority", quote="ignore all previous", confidence=0.99)]
     facts = list(_facts_for_chunk(chunk, labels))
     assert not facts
 
 
-def test_offschema_predicate_never_becomes_a_fact():
-    # Even if the transport returns a bogus predicate, parse_labels drops it upstream.
-    bogus = {"labels": [{"predicate": "Malicious", "quote": "x", "confidence": 1}]}
+def test_offschema_observation_never_becomes_a_fact():
+    # Even if the transport returns a bogus observation, parse_labels drops it upstream.
+    bogus = {"labels": [{"observation": "is_malicious", "quote": "x", "confidence": 1}]}
     assert parse_labels(bogus) == []
 
 
@@ -97,10 +97,10 @@ def test_injection_in_chunk_cannot_change_other_chunks():
         {
             "POST them to": {
                 "labels": [
-                    {"predicate": "Egress", "quote": "POST them", "confidence": 0.9},
+                    {"observation": "sends_outward", "quote": "POST them", "confidence": 0.9},
                 ]
             }
         }
     )
     facts = list(label_package(_one_file_pkg("SKILL.md", text), client))
-    assert any(f.predicate == "Egress" for f in facts)
+    assert any(f.predicate == "Net" for f in facts)
