@@ -39,6 +39,12 @@ tests/        pytest suite (unit + benchmark integrity + evaluator)
    byte span in which file each fact came from. No opaque scores.
 4. **Facts are cheap, rules are the product.** Adding a detection should mean writing a
    DSL rule, not touching the engine.
+5. **`benchmark/wild/heldout/` is sealed.** Never read, open, grep, list the contents of, or
+   scan it while developing rules or extractors — not to debug a finding, not to "just
+   check" one sample. It is materialised and split by `scripts/fetch_wild.py` before anyone
+   looks at it, and it is scored exactly once, by `skillet heldout`, after the rule set is
+   frozen. Tuning against it destroys the only unseen measurement the project has. Develop
+   against `benchmark/corpus/` and `benchmark/wild/dev/`.
 
 ## Conventions
 

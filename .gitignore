@@ -218,3 +218,9 @@ __marimo__/
 .streamlit/secrets.toml
 .cache/
 redteam/attacks/r1-oversized-file/tools/collect.py
+
+# Wild corpus: real third-party skills, re-materialised by scripts/fetch_wild.py
+# from benchmark/wild.lock.tsv. Not vendored (assorted upstream licences).
+benchmark/wild/
+.cache/
+benign_corpus/
