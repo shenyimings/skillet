@@ -84,6 +84,7 @@ class Normalized:
     invisible_stripped: int = 0
     confusables_mapped: int = 0
     blank_runs_collapsed: int = 0
+    max_blank_run: int = 0  # longest collapsed run — a few blanks is formatting, thousands is hiding
 
     @property
     def evaded(self) -> bool:
@@ -106,6 +107,18 @@ class Normalized:
         return Span(
             file=file, start=raw_start, end=raw_end, line=bisect_right(raw_starts, raw_start)
         )
+
+
+def evasion_chars(s: str) -> tuple[bool, bool]:
+    """Whether `s` contains (invisible, confusable) characters — used to test whether a
+    *specific* matched token was obfuscated, rather than flagging any non-ASCII prose."""
+    invisible = any(c in _INVISIBLE for c in s)
+    confusable = any(
+        c in _CONFUSABLES
+        or (unicodedata.normalize("NFKC", c) != c and unicodedata.normalize("NFKC", c).isascii())
+        for c in s
+    )
+    return invisible, confusable
 
 
 def normalize(raw: str) -> Normalized:
@@ -135,7 +148,7 @@ def normalize(raw: str) -> Normalized:
     to_raw.append(len(raw))
 
     text = "".join(chars)
-    collapsed_text, collapsed_map, runs = _collapse_blank_runs(text, to_raw)
+    collapsed_text, collapsed_map, runs, max_run = _collapse_blank_runs(text, to_raw)
 
     return Normalized(
         text=collapsed_text,
@@ -144,14 +157,16 @@ def normalize(raw: str) -> Normalized:
         invisible_stripped=invisible,
         confusables_mapped=confus,
         blank_runs_collapsed=runs,
+        max_blank_run=max_run,
     )
 
 
-def _collapse_blank_runs(text: str, to_raw: list[int]) -> tuple[str, list[int], int]:
+def _collapse_blank_runs(text: str, to_raw: list[int]) -> tuple[str, list[int], int, int]:
     """Collapse runs of >MAX_CONSECUTIVE_BLANK blank lines, keeping the offset map aligned.
 
     A payload isolated behind thousands of blank lines rejoins its neighbours once the run
-    is collapsed, so the chunker no longer drops it into its own sub-minimum window.
+    is collapsed, so the chunker no longer drops it into its own sub-minimum window. Returns
+    the number of runs collapsed and the length (in lines) of the longest one.
     """
     lines = text.splitlines(keepends=True)
     out_chars: list[str] = []
@@ -159,11 +174,13 @@ def _collapse_blank_runs(text: str, to_raw: list[int]) -> tuple[str, list[int], 
     pos = 0
     blank_streak = 0
     runs = 0
+    max_run = 0
     collapsing = False
     for line in lines:
         is_blank = line.strip() == ""
         if is_blank:
             blank_streak += 1
+            max_run = max(max_run, blank_streak)
             if blank_streak > MAX_CONSECUTIVE_BLANK:
                 if not collapsing:
                     runs += 1
@@ -178,4 +195,4 @@ def _collapse_blank_runs(text: str, to_raw: list[int]) -> tuple[str, list[int], 
             out_map.append(to_raw[pos + j])
         pos += len(line)
     out_map.append(to_raw[len(text)] if text else 0)
-    return "".join(out_chars), out_map, runs
+    return "".join(out_chars), out_map, runs, max_run

@@ -27,6 +27,8 @@ class Pred(StrEnum):
     DIRECTIVE = "Directive"  # Directive(loc)
     CLAIM = "Claim"  # Claim(loc, kind)
     DECLARES = "Declares"  # Declares(skill, capability)
+    STRONG_SECRET = "StrongSecret"  # StrongSecret(loc) — a credential file / harvest / OOD secret
+    PIPE_TO_SHELL = "PipeToShell"  # PipeToShell(loc) — curl|sh fetch-and-run at one locus
     # evidence / attributes
     ENDPOINT = "Endpoint"  # Endpoint(loc, host)
     OBFUSCATION = "Obfuscation"  # Obfuscation(loc, kind)

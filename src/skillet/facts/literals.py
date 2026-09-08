@@ -18,6 +18,7 @@ import re
 from collections.abc import Iterator
 
 from .model import Fact, Origin, Span
+from .normalize import evasion_chars
 from .package import SkillFile, SkillPackage
 from .primitives import Direction, Obfuscation, Pred, Resource
 
@@ -79,6 +80,12 @@ _ENV_WORDS = frozenset(
     }
 )
 _ENV_CANDIDATE = re.compile(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+){0,6}\b")
+# A broad environment harvest: iterating the whole environment rather than reading one key.
+_ENV_HARVEST = re.compile(
+    r"os\.environ\.(?:items|keys|values)\b|\bdict\(\s*os\.environ"
+    r"|for\s+\w+[\w, ]*\bin\b[^\n]*os\.environ"
+    r"|process\.env\b(?![.\[])|printenv\b|\benv\b\s*\|"
+)
 
 # --- network capability -> Net(loc, direction) ---------------------------------------
 # Every outward channel collapses onto Net(out); a plain fetch is Net(in); a bare API whose
@@ -134,6 +141,7 @@ _BARE_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?")
 _BLOB = re.compile(r"[A-Za-z0-9+/=_-]{48,}")
 _HEX_BLOB = re.compile(r"(?:\\x[0-9a-fA-F]{2}){12,}|\b[0-9a-fA-F]{64,}\b")
 
+_PADDING_LINES = 30  # a collapsed blank run this long is hiding content, not formatting
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})
 _DOC_HOSTS = frozenset({"example.com", "example.net", "example.org", "schema.org", "www.w3.org"})
 _PACKAGE_HOSTS = frozenset(
@@ -196,15 +204,15 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
     def flag(predicate: Pred, *args: str, conf: float = 1.0) -> Fact:
         return Fact(str(predicate), args, Origin.STATIC, conf, Span(f.path, 0, 0, 1), EXTRACTOR)
 
-    # Evasion (from normalisation) is itself a finding.
-    if norm.invisible_stripped:
-        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.ZERO_WIDTH)
-    if norm.confusables_mapped:
-        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.CONFUSABLE)
-    if norm.blank_runs_collapsed:
-        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.PADDING)
-    if f.oversized:
-        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.OVERSIZE)
+    # Raw byte spans of the security tokens matched in this file. Evasion is flagged only if
+    # one of THESE slices was obfuscated — so a token an attacker hid with confusables is
+    # caught (it still matches on folded text) while legitimate non-ASCII prose is not.
+    sec_raw: list[tuple[int, int]] = []
+
+    def sec(fact: Fact) -> Fact:
+        if fact.span is not None:
+            sec_raw.append((fact.span.start, fact.span.end))
+        return fact
 
     # Writes first, so a sensitive token used as a write target is not double-counted as a read.
     write_spans: list[tuple[int, int]] = []
@@ -213,7 +221,7 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
             target = m.group("t")
             hit = _classify_path(target)
             cls = hit[0] if hit else Resource.SYSTEM
-            yield at(Pred.WRITE, f.path, str(cls), m=m)
+            yield sec(at(Pred.WRITE, f.path, str(cls), m=m))
             if hit:
                 yield at(Pred.ATTR, f.path, "write_kind", hit[1], m=m)
             write_spans.append(m.span())
@@ -221,13 +229,19 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
     def in_write(span: tuple[int, int]) -> bool:
         return any(a <= span[0] < b for a, b in write_spans)
 
-    # Reads of resource tokens (skip those already claimed by a write shape).
+    # Reads of resource tokens (skip those already claimed by a write shape). A credential
+    # FILE or private-data read is a "strong" secret — a skill has no ordinary reason to read
+    # ~/.aws or the browser store — so it seeds exfiltration on its own. (A single named env
+    # var, below, does not: reading OPENAI_API_KEY to call an API is the commonest benign
+    # pattern there is, so it takes a broad harvest to count as strong.)
     for pattern, cls, subtype in _RESOURCE_RES:
         for m in pattern.finditer(text):
             if in_write(m.span()):
                 continue
-            yield at(Pred.READ, f.path, str(cls), m=m)
+            yield sec(at(Pred.READ, f.path, str(cls), m=m))
             yield at(Pred.ATTR, f.path, "resource", subtype, m=m)
+            if cls in (Resource.SECRET, Resource.PERSONAL):
+                yield at(Pred.STRONG_SECRET, f.path, m=m)
 
     seen_env: set[str] = set()
     for m in _ENV_CANDIDATE.finditer(text):
@@ -236,7 +250,12 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
             continue
         seen_env.add(key)
         conf = 1.0 if "_" in key else 0.5
-        yield at(Pred.READ, f.path, str(Resource.SECRET), m=m, conf=conf)
+        yield sec(at(Pred.READ, f.path, str(Resource.SECRET), m=m, conf=conf))
+    # A broad environment harvest (iterating os.environ, or naming many distinct secrets) is
+    # a strong secret; reading one named key is not.
+    harvest = _ENV_HARVEST.search(text)
+    if harvest is not None or len(seen_env) >= 3:
+        yield at(Pred.STRONG_SECRET, f.path, m=harvest or _first_env(text))
 
     # Network capability, by direction.
     for table, direction in (
@@ -247,19 +266,21 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
         for pattern, channel in table:
             m = pattern.search(text)
             if m:
-                yield at(Pred.NET, f.path, str(direction), m=m)
+                yield sec(at(Pred.NET, f.path, str(direction), m=m))
                 yield at(Pred.ATTR, f.path, "channel", channel, m=m)
 
     # Execution.
     for pattern in _EXEC_RES:
         m = pattern.search(text)
         if m:
-            yield at(Pred.EXEC, f.path, m=m)
-    if _PIPE_TO_SHELL.search(text):
-        pm = _PIPE_TO_SHELL.search(text)
-        assert pm is not None
-        yield at(Pred.NET, f.path, str(Direction.IN), m=pm)
-        yield at(Pred.EXEC, f.path, m=pm)
+            yield sec(at(Pred.EXEC, f.path, m=m))
+    pm = _PIPE_TO_SHELL.search(text)
+    if pm is not None:
+        # A curl|sh is fetch-and-run at one locus: emit the specific shape the rce rule keys
+        # on, so rce need not fire on any fetch + any exec elsewhere in the package.
+        yield sec(at(Pred.NET, f.path, str(Direction.IN), m=pm))
+        yield sec(at(Pred.EXEC, f.path, m=pm))
+        yield at(Pred.PIPE_TO_SHELL, f.path, m=pm)
 
     # Endpoints. A hardcoded external host implies a network capability even if the calling
     # API was not recognised above, so it contributes Net(unknown).
@@ -268,17 +289,18 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
         if host in _PACKAGE_HOSTS:
             yield at(Pred.ATTR, f.path, "package_registry", host, m=m)
         if host not in _LOCAL_HOSTS and host not in _DOC_HOSTS:
-            yield at(Pred.ENDPOINT, f.path, host, m=m)
+            yield sec(at(Pred.ENDPOINT, f.path, host, m=m))
             yield at(Pred.NET, f.path, str(Direction.UNKNOWN), m=m)
     for m in _BARE_IPV4.finditer(text):
         ip = m.group(0).split(":")[0]
         if not _is_routable_literal(ip):
             continue
         if _is_metadata_endpoint(ip):
-            yield at(Pred.READ, f.path, str(Resource.SECRET), m=m)
+            yield sec(at(Pred.READ, f.path, str(Resource.SECRET), m=m))
             yield at(Pred.ATTR, f.path, "resource", "cloud_metadata", m=m)
+            yield at(Pred.STRONG_SECRET, f.path, m=m)
         else:
-            yield at(Pred.ENDPOINT, f.path, ip, m=m)
+            yield sec(at(Pred.ENDPOINT, f.path, ip, m=m))
             yield at(Pred.NET, f.path, str(Direction.UNKNOWN), m=m)
 
     # Encoded blobs -> Obfuscation(encoded); the rce rule pairs it with an exec sink.
@@ -287,6 +309,34 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
             yield at(Pred.OBFUSCATION, f.path, Obfuscation.ENCODED, m=m, conf=0.7)
     for m in _HEX_BLOB.finditer(text):
         yield at(Pred.OBFUSCATION, f.path, Obfuscation.ENCODED, m=m, conf=0.7)
+
+    # Encoding evasion is a finding only when folding was needed AROUND security-relevant
+    # content — otherwise legitimate non-ASCII prose (a Chinese skill, an accented name, a
+    # typographic quote) would be flagged. Because matching runs on the folded text, a token
+    # an attacker hid with confusables still surfaces above and trips `security_seen`.
+    if norm.evaded and sec_raw:
+        raw = f.text
+        invisible = confusable = False
+        for a, b in sec_raw:
+            inv, conf = evasion_chars(raw[a:b])
+            invisible = invisible or inv
+            confusable = confusable or conf
+        if invisible:
+            yield flag(Pred.OBFUSCATION, f.path, Obfuscation.ZERO_WIDTH)
+        if confusable:
+            yield flag(Pred.OBFUSCATION, f.path, Obfuscation.CONFUSABLE)
+    # A large blank-line run hides content from review; a handful of blank lines is ordinary
+    # formatting, so only an extreme run counts.
+    if norm.max_blank_run >= _PADDING_LINES:
+        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.PADDING)
+    if f.oversized:
+        yield flag(Pred.OBFUSCATION, f.path, Obfuscation.OVERSIZE)
+
+
+def _first_env(text: str) -> re.Match[str]:
+    """A match to anchor a harvest span when the trigger was the distinct-key count."""
+    m = _ENV_CANDIDATE.search(text)
+    return m if m is not None else re.compile(r"\A").match(text)  # type: ignore[return-value]
 
 
 def _is_routable_literal(ip: str) -> bool:
