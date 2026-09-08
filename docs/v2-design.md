@@ -118,3 +118,32 @@ unchanged. v2 is a vocabulary change: new `facts/primitives.py`, extractors re-p
 emit primitives, `core.skl` rewritten, the LLM schema re-pointed to primitives + `Flow`.
 The anti-injection posture is untouched: the LLM still emits only schema facts, one chunk
 at a time, no verdict, no rule set.
+
+## v2 results (measured)
+
+Static tier, benchmark: precision 1.00 (unchanged), macro-pattern F1 0.15 → 0.20.
+
+Red-team, static tier only:
+
+| round | v1 bypasses | v2 bypasses |
+|---|---|---|
+| 1 | 1 (chunk-split, semantic) | 1 (chunk-split, semantic) |
+| 2 | 4 | **2** (`unknown-secret`, `split-semantic`) |
+
+The three round-2 exfil bypasses (`dns`, `scp`, `git push`) closed on the static
+tier alone, purely from collapsing every outward channel onto `Net(out)`.
+
+With the LLM tier enabled the two remaining round-2 bypasses are caught:
+
+- `r2-unknown-secret` → **MALICIOUS** (HIGH exfiltration). The labeller classified an
+  out-of-distribution credential store (`~/.config/acme-db/session.token`) as
+  `Read(secret)`; it composed with the static `Net(out)` through the one general exfil
+  rule. This is the intended coupling: the LLM covers the resource static can't
+  enumerate, static supplies the channel, the rule is unchanged.
+- `r2-split-semantic` → **SUSPICIOUS** (persistence_claim). Now flagged rather than
+  benign, but only MEDIUM — the full cross-file `injection` (authority → conceal over
+  the include edge) did not fire on that pass. Caught but under-graded, and subject to
+  labeller variance; a candidate for the next round.
+
+Honest limitation carried over from v1: the semantic tier is nondeterministic, so
+semantic-only findings (the injections) are not guaranteed on a single pass.
