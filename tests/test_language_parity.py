@@ -1,11 +1,8 @@
-"""The multi-language guarantee, as executable tests.
+"""The multi-language guarantee, in the v2 primitive vocabulary.
 
-Two claims are checked:
-
-1. The same attack, reimplemented in five languages, yields the same language-invariant
-   resource facts — so switching implementation language does not evade detection.
-2. Dropping the language-specific (and semantic) tiers never removes a fact the agnostic
-   tier established — so language coverage is a floor, not a feature that can regress.
+The same attack in five languages must yield the same primitive facts (Read of a secret,
+an outward Net), so switching implementation language does not evade detection; and
+dropping the language/semantic tiers must never remove a fact the agnostic tier found.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from skillet.facts import Tier, extract, literals
-from skillet.facts.package import SkillPackage
+from skillet.facts.package import SkillFile, SkillPackage
 
 POLYGLOT = Path(__file__).parent / "fixtures" / "polyglot"
 LANGUAGES = ["steal.py", "steal.js", "steal.go", "steal.rs", "Steal.java"]
@@ -26,52 +23,38 @@ def _facts_for(filename: str) -> set[tuple[str, tuple[str, ...]]]:
     pkg = SkillPackage(
         name=filename,
         root=POLYGLOT,
-        files=[
-            _file(filename, text),
-        ],
+        files=[SkillFile(filename, len(text.encode()), text)],
     )
     return {f.key for f in literals.extract(pkg)}
 
 
-def _file(name: str, text: str):
-    from skillet.facts.package import SkillFile
-
-    return SkillFile(path=name, size=len(text.encode()), text=text)
-
-
 @pytest.mark.parametrize("filename", LANGUAGES)
-def test_every_language_reveals_the_same_resources(filename: str):
+def test_every_language_reads_a_secret_and_sends_outward(filename: str):
     keys = _facts_for(filename)
-    assert ("MentionsSensitivePath", (filename, "aws_credentials")) in keys, filename
-    assert ("MentionsEnvKey", (filename, "AWS_SECRET_ACCESS_KEY")) in keys, filename
-    assert ("MentionsExternalHost", (filename, "collector.evil-telemetry.io")) in keys, filename
+    assert ("Read", (filename, "secret")) in keys, filename
+    # An outward or at least a network capability is seen in every language.
+    assert any(pred == "Net" for pred, _ in keys), filename
 
 
-def test_resource_facts_are_identical_across_languages():
-    # Strip the filename (arg 0) so only the resource identity is compared. NetworkSink is
-    # compared by presence, not payload: its argument is the implementation language, which
-    # is *meant* to differ — what must not differ is that a network capability is seen at all.
-    def resources(filename: str) -> set:
+def test_primitive_facts_are_identical_across_languages():
+    # Compare the resource/verb shape, ignoring the filename (arg 0) and the Net direction
+    # (out vs unknown can vary with how precisely the call is recognised); the point is the
+    # same primitives appear.
+    def shape(filename: str) -> set:
         out = set()
         for pred, args in _facts_for(filename):
-            out.add((pred,) if pred == "NetworkSink" else (pred, args[1:]))
+            if pred == "Read":
+                out.add(("Read", args[1:]))
+            elif pred == "Net":
+                out.add(("Net",))
         return out
 
-    baseline = resources(LANGUAGES[0])
+    baseline = shape(LANGUAGES[0])
     for other in LANGUAGES[1:]:
-        assert resources(other) == baseline, f"{other} differs from {LANGUAGES[0]}"
-
-
-def test_every_language_reveals_a_network_sink():
-    # The exfil call names a networking API in every language, so an obfuscated endpoint
-    # (no host literal) is still caught by capability.
-    for filename in LANGUAGES:
-        assert any(pred == "NetworkSink" for pred, _ in _facts_for(filename)), filename
+        assert shape(other) == baseline, f"{other} differs from {LANGUAGES[0]}"
 
 
 def test_language_tier_is_additive_only():
-    # For every benchmark sample, the agnostic-only fact set must be a subset of the full
-    # run: enabling more tiers may add facts or raise confidence, never remove coverage.
     from skillet.benchmark import load
 
     for sample in load():

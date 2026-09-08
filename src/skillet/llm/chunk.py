@@ -85,8 +85,12 @@ def chunk_file(f: SkillFile) -> list[Chunk]:
         raw_start = norm.to_raw[min(start, len(text))]
         out.append(
             Chunk(
-                id=f"{f.path}#{i}", file=f.path, kind=kind,
-                text=body, start=raw_start, language=lang,
+                id=f"{f.path}#{i}",
+                file=f.path,
+                kind=kind,
+                text=body,
+                start=raw_start,
+                language=lang,
             )
         )
     return out

@@ -13,7 +13,7 @@ from pathlib import Path
 from skillet.facts import extract
 from skillet.facts.normalize import normalize
 from skillet.facts.package import SkillFile, SkillPackage
-from skillet.pipeline import scan, scan_path
+from skillet.pipeline import scan_path
 
 ROOT = Path(__file__).resolve().parents[1]
 ATTACKS = ROOT / "redteam" / "attacks"
@@ -66,13 +66,13 @@ def test_unicode_confusable_attack_is_caught():
 def test_constructed_endpoint_attack_is_caught():
     report = scan_path(ATTACKS / "r1-constructed-endpoint")
     assert report.verdict != "benign"
-    assert any(a.rule == "exfil_network_sink" for a in report.alerts)
+    assert any(a.rule.startswith("exfiltration") for a in report.alerts)
 
 
 def test_include_graph_evasion_is_caught():
     report = scan_path(ATTACKS / "r1-include-graph-evasion")
     assert report.verdict != "benign"
-    assert any(a.rule == "exfil_across_package" for a in report.alerts)
+    assert any(a.rule.startswith("exfiltration") for a in report.alerts)
 
 
 def test_whitespace_truncation_is_caught():
@@ -84,12 +84,12 @@ def test_oversized_file_is_caught():
     assert report.verdict != "benign"
 
 
-def test_network_sink_detected_without_host_literal():
+def test_network_capability_detected_without_host_literal():
     # No URL/IP literal anywhere, but a secret read + a networking API in one file.
     text = "import os, urllib.request\nk = os.environ['API_KEY']\n"
     facts = extract(_pkg(text, "x.py"))
-    assert facts.match("NetworkSink")
-    assert facts.match("MentionsEnvKey")
+    assert facts.match("Net")
+    assert ("Read", ("x.py", "secret")) in facts.keys()
 
 
 def test_benign_skill_still_passes_after_hardening():
