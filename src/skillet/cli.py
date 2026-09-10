@@ -74,8 +74,11 @@ def list_samples() -> None:
 def scan(
     path: str,
     llm: bool = typer.Option(False, "--agent", "--llm", help="bounded Pi semantic review"),
+    pure_llm: bool = typer.Option(
+        False, "--pure-llm", help="direct Pi/LLM verdict without facts or Datalog"
+    ),
     plan: bool = typer.Option(False, "--plan", help="show static plan, no model requests"),
-    max_calls: int = typer.Option(20, min=1, help="hard model request limit"),
+    max_calls: int = typer.Option(30, min=1, help="hard model request limit"),
     max_tokens: int | None = typer.Option(None, min=1, help="optional cumulative token limit"),
     audit: str | None = typer.Option(None, help="new JSONL audit path; never overwritten"),
     show_facts: bool = typer.Option(False, help="print the derived fact base"),
@@ -100,7 +103,7 @@ def scan(
         )
         return
     agent = None
-    if llm:
+    if llm or pure_llm:
         # Config is the caller's environment, never the sample's .env.
         try:
             from dotenv import load_dotenv
@@ -113,14 +116,16 @@ def scan(
             if audit
             else Path(".cache/agent") / (datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + ".jsonl")
         )
-        agent = PiAgent(budget=budget, audit_path=audit_path)
+        agent = PiAgent(budget=budget, audit_path=audit_path, mode="pure" if pure_llm else "facts")
     report = scan_path(path, agent=agent)
 
     colour = {"benign": "green", "suspicious": "yellow", "malicious": "red", "unknown": "yellow"}[
         report.verdict
     ]
     console.print(f"\n[bold]{report.skill}[/bold]: [{colour}]{report.verdict.upper()}[/{colour}]")
-    if not report.alerts:
+    if report.analysis.get("direct_decision"):
+        console.print(report.analysis["direct_decision"]["reason"])
+    elif not report.alerts:
         console.print("  no findings")
     console.print(
         f"  analysis: {report.analysis['status']} "

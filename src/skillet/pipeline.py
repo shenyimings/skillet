@@ -74,6 +74,16 @@ def scan(
         raise ValueError("chunk labelling is retired; use agent=PiAgent(), or explicit legacy=True")
     if agent is not None and legacy:
         raise ValueError("Pi agent and legacy chunk mode cannot be combined")
+    if agent is not None and getattr(agent, "mode", "facts") == "pure":
+        facts = FactSet()
+        analysis = agent.run(package, facts)
+        decision = analysis.get("direct_decision") or {}
+        return ScanReport(
+            skill=package.name,
+            verdict=decision.get("verdict", "unknown"),
+            facts=facts,
+            analysis=analysis,
+        )
     rules = rules if rules is not None else load_rules(_CORE_RULES if legacy else None)
 
     facts = (

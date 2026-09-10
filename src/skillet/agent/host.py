@@ -20,12 +20,12 @@ from .tools import SnapshotTools
 
 @dataclass(frozen=True)
 class Budget:
-    max_calls: int = 20
+    max_calls: int = 30
     max_total_tokens: int | None = None
     max_output_tokens: int = 768
-    max_context_bytes: int = 14000
-    max_context_tokens: int = 16000
-    max_tool_calls: int = 80
+    max_context_bytes: int = 62000
+    max_context_tokens: int = 64000
+    max_tool_calls: int = 90
     max_read_bytes: int | None = None
     max_facts: int = 64
     timeout_seconds: int = 120
@@ -36,18 +36,20 @@ class Budget:
                 continue
             if type(val) is not int or val <= 0:
                 raise ValueError(f"{key} must be a positive integer")
-        if self.max_context_tokens > 16000:
-            raise ValueError("v3 context token ceiling is 16000")
+        if self.max_context_tokens > 64000:
+            raise ValueError("v3 context token ceiling is 64000")
 
 
 class AgentHost(SnapshotTools):
+    pipeline_mode = "facts"
+
     def __init__(
         self,
         package: SkillPackage,
         facts: FactSet,
         budget: Budget | None = None,
         event_sink: Callable[[dict], None] | None = None,
-        protocol_version: int = 6,
+        protocol_version: int = 7,
     ):
         budget = budget or Budget()
         self.protocol_version = protocol_version
@@ -69,6 +71,7 @@ class AgentHost(SnapshotTools):
         self.event(
             "snapshot",
             schema_version=protocol_version,
+            **({"pipeline_mode": self.pipeline_mode} if protocol_version >= 7 else {}),
             skill=package.name,
             files=[
                 {

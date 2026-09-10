@@ -26,12 +26,16 @@ class PiAgent:
         self,
         *,
         budget: Budget | None = None,
+        mode: str = "facts",
         node: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
         audit_path: Path | None = None,
         resume_from: Path | None = None,
     ):
+        if mode not in {"facts", "pure"}:
+            raise ValueError("mode must be facts or pure")
+        self.mode = mode
         self.budget = budget or Budget()
         self.node = node or os.environ.get("SKILLET_NODE", "node")
         self.model = model or os.environ.get("SKILLET_LLM_MODEL", "deepseek-v4-flash")
@@ -71,7 +75,12 @@ class PiAgent:
             return self._run(package, facts, persist, restored)
 
     def _run(self, package: SkillPackage, facts: FactSet, persist, restored=None) -> dict:
-        host = restored or AgentHost(package, facts, self.budget, event_sink=persist)
+        from .pure import PureHost
+
+        host_type = PureHost if self.mode == "pure" else AgentHost
+        if restored is not None and restored.pipeline_mode != self.mode:
+            raise ValueError("resume must preserve pipeline mode")
+        host = restored or host_type(package, facts, self.budget, event_sink=persist)
         endpoint = urlparse(self.base_url)
         if endpoint.username or endpoint.password or endpoint.query:
             raise ValueError("credentials must be environment variables, not endpoint URLs")
@@ -87,6 +96,8 @@ class PiAgent:
             )
         config = {
             "budget": asdict(self.budget),
+            "mode": self.mode,
+            "protocol_version": host.protocol_version,
             "model": self.model,
             "base_url": self.base_url,
             "disable_thinking": True,

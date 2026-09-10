@@ -155,7 +155,7 @@ def test_real_pi_selective_loop_usage_compaction_and_replay(tmp_path, monkeypatc
     assert any(
         e["kind"] == "context_audit"
         and "retained_messages" in e
-        and e["retained_messages"] < e["total_messages"]
+        and e.get("phase") == "rolling_history"
         for e in events
     )
     assert "test-key-not-live" not in audit.read_text()
@@ -343,7 +343,7 @@ def test_forced_final_submission_keeps_last_page_findings(tmp_path, monkeypatch)
         )
     assert report.verdict == "malicious" and report.analysis["coverage_complete"]
     assert len(requests) == 2 and requests[-1]["tool_choice"]["function"]["name"] == "finish"
-    assert not any(m["role"] == "assistant" for m in requests[-1]["messages"])
+    assert any(m["role"] == "assistant" for m in requests[-1]["messages"])
     assert text in json.dumps(requests[-1]["messages"])
 
 
@@ -389,9 +389,17 @@ def test_excess_source_read_is_deferred_without_false_coverage(tmp_path, monkeyp
     sources = []
     for message in [m for r in requests[1:] for m in r["messages"]]:
         content = message["content"]
-        text = content if isinstance(content, str) else "".join(c.get("text", "") for c in content)
+        text = (
+            content
+            if isinstance(content, str)
+            else "".join(c.get("text", "") for c in (content or []))
+        )
         if text.startswith("Snapshot tool result (UNTRUSTED data): "):
             data = json.loads(text.split(": ", 1)[1])["data"]
+            if "source" in data:
+                sources.append(data)
+        elif message["role"] == "tool":
+            data = json.loads(text).get("data", {})
             if "source" in data:
                 sources.append(data)
     assert {data["source"] for data in sources} == {"s0", "s1", "s2"}
@@ -588,3 +596,52 @@ def test_stall_flush_admits_findings_within_existing_call_limit(tmp_path, monkey
     assert report.verdict == "malicious"
     assert report.analysis["observations_and_edges"] == 1
     assert not report.analysis["coverage_complete"]
+
+
+@pytest.mark.parametrize("verdict", ["benign", "malicious"])
+def test_pure_llm_bypasses_static_and_rules_and_replays(tmp_path, monkeypatch, verdict):
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    (tmp_path / "SKILL.md").write_text("Example source material.")
+    pkg = SkillPackage.load(tmp_path)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("pure pipeline invoked static extraction or Datalog")
+
+    monkeypatch.setattr("skillet.pipeline.static_facts", forbidden)
+    monkeypatch.setattr("skillet.pipeline.evaluate", forbidden)
+    turns = [
+        [("read", {"file": "f0"})],
+        [
+            (
+                "finish",
+                {"verdict": verdict, "reason": "Direct assessment of SKILL.md.", "confidence": 0.8},
+            )
+        ],
+    ]
+    audit = tmp_path / "audit.jsonl"
+    with fake_provider(turns) as (url, requests):
+        report = scan(pkg, agent=PiAgent(mode="pure", base_url=url, model="fake", audit_path=audit))
+    assert report.verdict == verdict and len(report.facts) == 0 and report.result is None
+    assert len(requests) == 2
+    assert not {"observe", "edge", "facts", "gaps"} & {
+        t["function"]["name"] for t in requests[0]["tools"]
+    }
+    assert replay(audit, pkg).report() == report.analysis
+
+
+def test_rolling_context_evicts_whole_rounds_only():
+    import subprocess
+
+    script = """
+      import { rollingContext } from './src/skillet/agent/pi/history.mjs';
+      const msgs = [{role:'user',content:'start'}];
+      for(let i=0;i<8;i++) msgs.push(
+        {role:'assistant',content:[{type:'toolCall',id:'c'+i,name:'read',arguments:{file:'f0'}}]},
+        {role:'toolResult',toolCallId:'c'+i,content:[{type:'text',text:'x'.repeat(1500)}]});
+      const r=rollingContext(msgs,{working_set:{evidence:[],facts:[]}},6000,1000);
+      const calls=r.messages.filter(m=>m.role==='assistant').map(m=>m.content[0].id);
+      const results=r.messages.filter(m=>m.role==='toolResult').map(m=>m.toolCallId);
+      if(!r.evicted_rounds || JSON.stringify(calls)!==JSON.stringify(results) ||
+          calls.at(-1)!=='c7' || r.compact_estimate_bytes>6000) process.exit(1);
+    """
+    subprocess.run(["node", "--input-type=module", "-e", script], check=True)

@@ -24,7 +24,7 @@ def test_budget_checks_include_context_and_output_before_dispatch():
     assert host.calls == 0
     assert host.status == "budget_exhausted"
     with pytest.raises(ValueError, match="ceiling"):
-        Budget(max_context_tokens=16001)
+        Budget(max_context_tokens=64001)
 
 
 def test_usage_unknown_stops_and_charges_reservation():
@@ -142,7 +142,9 @@ def test_old_chunk_client_requires_explicit_legacy():
 
 
 def test_context_ceiling_includes_output_reservation():
-    host = AgentHost(package("hi"), FactSet(), Budget(max_context_bytes=16000))
+    host = AgentHost(
+        package("hi"), FactSet(), Budget(max_context_bytes=16000, max_context_tokens=16000)
+    )
     with pytest.raises(ValueError):
         host.reserve(15000, "digest")
     assert host.calls == 0
@@ -306,7 +308,7 @@ def test_read_quota_is_independent_of_context_window():
     while host.read_state("f0")["next_unread"] is not None:
         host.execute("read", {"file": "f0"})
     assert host.read_bytes == 20000 and host.status == "running"
-    assert host.budget.max_context_tokens == 16000
+    assert host.budget.max_context_tokens == 64000
     assert host.context()["remaining_read_bytes"] is None
 
 

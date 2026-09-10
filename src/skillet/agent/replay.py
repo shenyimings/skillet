@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..facts.model import FactSet
 from ..facts.package import SkillPackage
 from .host import AgentHost, Budget
+from .pure import PureHost
 from .static import static_facts
 
 
@@ -15,11 +17,12 @@ def replay(path: Path, package: SkillPackage) -> AgentHost:
     if not events or events[0].get("kind") != "snapshot":
         raise ValueError("audit is missing its initial snapshot")
     version = events[0].get("schema_version", 3)
-    if version not in {3, 4, 5, 6}:
+    if version not in {3, 4, 5, 6, 7}:
         raise ValueError("unsupported audit schema version")
-    host = AgentHost(
+    pure = events[0].get("pipeline_mode") == "pure"
+    host = (PureHost if pure else AgentHost)(
         package,
-        static_facts(package, legacy=version == 3, protocol_version=version),
+        FactSet() if pure else static_facts(package, legacy=version == 3, protocol_version=version),
         Budget(**events[0]["budget"]),
         protocol_version=version,
     )
