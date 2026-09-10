@@ -16,6 +16,7 @@ LABELS = {
     "fetches_remote": ("Net", "in"),
     "executes_code": ("Exec",),
     "writes_agent_state": ("Write", "agent_state"),
+    "overrides_constraints": ("Claim", "override"),
     "claims_authority": ("Claim", "authority"),
     "asks_to_conceal": ("Claim", "conceal"),
     "claims_persistent": ("Claim", "persist"),
@@ -263,9 +264,27 @@ class SnapshotTools:
         line = (file.text or "").encode()[:byte_start].count(b"\n") + 1
         return Span(file.path, byte_start, byte_start + len(quote.encode()), line)
 
-    def _observe(self, source: str, label: dict, offset: int | None = None) -> dict:
+    def _observe(
+        self, source: str, label: dict, offset: int | None = None, support: dict | None = None
+    ) -> dict:
         item = Label.model_validate(label)
         span = self._anchor(source, item.quote, offset)
+        contrary = None
+        if self.protocol_version >= 5 and item.observation == "misrepresents":
+            if not isinstance(support, dict):
+                raise ValueError(
+                    "misrepresents needs support: source, quote, optional offset "
+                    "for contradictory actual behavior"
+                )
+            if support.get("quote") == item.quote:
+                raise ValueError("claim and contradictory behavior cannot be the same quote")
+            contrary = self._anchor(**support)
+            if contrary.file == span.file and not (
+                contrary.end <= span.start or span.end <= contrary.start
+            ):
+                raise ValueError(
+                    "reported claim and actual behavior need distinct, non-overlapping evidence"
+                )
         if (
             self.protocol_version >= 4
             and (LABELS[item.observation][0], (locus(span), *LABELS[item.observation][1:]))
@@ -283,6 +302,17 @@ class SnapshotTools:
         for predicate, arguments in facts:
             self.facts.add(
                 Fact(predicate, arguments, Origin.LLM, item.confidence, span, "pi-agent")
+            )
+        if contrary is not None:
+            self.facts.add(
+                Fact(
+                    "DeceptionEvidence",
+                    (node, locus(contrary)),
+                    Origin.LLM,
+                    item.confidence,
+                    contrary,
+                    "pi-agent-contrast",
+                )
             )
         self.added += 1
         self.event("admitted", observation=item.model_dump(), span=asdict(span), locus=node)

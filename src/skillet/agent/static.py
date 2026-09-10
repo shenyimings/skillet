@@ -33,16 +33,38 @@ def locus(span: Span) -> str:
     return f"{span.file}@{span.start}:{span.end}"
 
 
-def static_facts(package: SkillPackage, *, legacy: bool = False) -> FactSet:
+def static_facts(
+    package: SkillPackage, *, legacy: bool = False, protocol_version: int = 5
+) -> FactSet:
     """Split legacy file-wide primitives into anchored events, then add AST flow."""
     result = extract(package, behavioral_env=not legacy)
     out = FactSet()
+    prose = {
+        f.path for f in package.files if f.language_hint in {"markdown", "yaml", "json", "toml"}
+    }
     for fact in result:
         for evidence in result.evidence(fact):
             span = evidence.span
             if evidence.predicate in _EVENTS and span is not None:
                 node = locus(span)
-                out.add(replace(evidence, args=(node, *evidence.args[1:])))
+                if (
+                    protocol_version >= 5
+                    and not legacy
+                    and span.file in prose
+                    and evidence.extractor == "literals"
+                    and evidence.predicate in {"Read", "StrongSecret", "Write", "Net", "Exec"}
+                ):
+                    # A named capability in prose/config is a lead for semantic review,
+                    # not a claim that this behavior occurs. Preserve its exact location.
+                    out.add(
+                        replace(
+                            evidence,
+                            predicate="LexicalHint",
+                            args=(node, evidence.predicate, ",".join(evidence.args[1:])),
+                        )
+                    )
+                else:
+                    out.add(replace(evidence, args=(node, *evidence.args[1:])))
                 out.add(Fact("InFile", (node, span.file), span=span, extractor="v3-locus"))
             else:
                 out.add(evidence)

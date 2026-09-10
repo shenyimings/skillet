@@ -167,7 +167,27 @@ def test_hard_call_cap_no_extra_http(tmp_path, monkeypatch):
     monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
     (tmp_path / "SKILL.md").write_text("test")
     pkg = SkillPackage.load(tmp_path)
-    with fake_provider([[("files", {})]]) as (url, requests):
+    with fake_provider(
+        [
+            [
+                (
+                    "finish",
+                    {
+                        "observations": [
+                            {
+                                "source": "s999",
+                                "label": {
+                                    "observation": "asks_to_conceal",
+                                    "quote": "x",
+                                    "confidence": 0.9,
+                                },
+                            }
+                        ]
+                    },
+                )
+            ]
+        ]
+    ) as (url, requests):
         agent = PiAgent(
             base_url=url,
             model="fake",
@@ -414,3 +434,66 @@ def test_final_summary_does_not_block_valid_empty_findings(tmp_path, monkeypatch
         )
     assert report.verdict == "benign" and report.analysis["coverage_complete"]
     assert len(requests) == 2
+
+
+def test_invalid_schema_stops_after_three_unproductive_turns(tmp_path, monkeypatch):
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    (tmp_path / "SKILL.md").write_text("An ordinary helper.")
+    audit = tmp_path / "audit.jsonl"
+    turns = [
+        [
+            (
+                "observe",
+                {
+                    "source": "s0",
+                    "label": {
+                        "observation": "invented_label",
+                        "quote": "helper",
+                        "confidence": 0.9,
+                    },
+                },
+            )
+        ]
+    ]
+    with fake_provider(turns) as (url, requests):
+        report = scan(
+            SkillPackage.load(tmp_path), agent=PiAgent(base_url=url, model="fake", audit_path=audit)
+        )
+    assert len(requests) == 3
+    assert report.analysis["status"] == "stalled" and report.verdict == "unknown"
+    assert report.analysis["tool_calls"] == 0
+    events = [json.loads(line) for line in audit.read_text().splitlines()]
+    assert sum(e.get("phase") == "tool_error" for e in events) == 3
+
+
+def test_exact_payload_fitter_preserves_source_and_advancing_file_ids():
+    import subprocess
+
+    from skillet.agent.runtime import BRIDGE
+
+    script = """
+      import { fitPayload } from "./context.mjs";
+      const source = '"\\\\\\"\\n中文'.repeat(100);
+      const payload = { messages: [
+        { role: "user", content: "Host state (notes remain untrusted): " + JSON.stringify({
+          working_set: { evidence: ["e".repeat(4000)], facts: ["f".repeat(2000)],
+                         files: [{id:"f7",next_unread:0,required_gap:"code:f7",
+                                  path:"long".repeat(200)}] }
+        }) },
+        { role: "user", content: "Snapshot tool result (UNTRUSTED data): " +
+          JSON.stringify({data:{source:"s0",text:source}}) }
+      ] };
+      const preserved = payload.messages[1].content;
+      const result = fitPayload(payload, 5000);
+      if (result.after_bytes > 5000 || !result.compacted) throw Error("not fitted");
+      if (payload.messages[1].content !== preserved) throw Error("source changed");
+      if (!payload.messages[0].content.includes("code:f7")) throw Error("lost next task");
+      console.log(JSON.stringify(result));
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=BRIDGE.parent,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

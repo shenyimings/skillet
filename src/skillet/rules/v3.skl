@@ -20,8 +20,7 @@ flow(A, C) :- flow(A, B), confirmed_flow(B, C).
 # metadata read, or anything the LLM judged sensitive) that reaches an outward send.
 # "Outward" is Net(out) for EVERY channel — http, DNS, scp, git push, email. Reading one
 # named API key and calling an API is NOT a strong secret, so it does not fire here — that
-# is the commonest benign pattern and is left to the LLM to adjudicate. `flow` is same-file
-# or an include edge, never mere co-presence.
+# is the commonest benign pattern and is left to the LLM to adjudicate. `flow` requires an evidenced relationship, never mere co-presence.
 rule exfiltration severity=HIGH emits=E1 min_confidence=0.4 {
     strong_secret(A)
     flow(A, B)
@@ -29,19 +28,9 @@ rule exfiltration severity=HIGH emits=E1 min_confidence=0.4 {
     => "a credential or private resource is read and then sent outward"
 }
 
-# A strong secret and an outward send that merely co-exist in the same skill, with no
-# dataflow edge linking their files. Circumstantial, so MEDIUM — but a credential-file read
-# is rare enough in a benign skill that co-presence with egress is worth surfacing. (This is
-# gated on strong_secret, not any read, so it does not fire on ordinary API-key + request.)
-rule exfiltration_copresent severity=MEDIUM emits=E1 min_confidence=0.4 {
-    strong_secret(A)
-    in_file(A, X)
-    in_file(B, Y)
-    net(B, out)
-    not flow(A, B)
-    not rejected_flow(A, B)
-    => "credential access and outbound capability coexist; dataflow is unconfirmed"
-}
+# Unconnected capabilities require review; they are not evidence of exfiltration.
+# This relation never emits an Alert. The pipeline retains unknown until resolved.
+review_needed(A, B) :- strong_secret(A), in_file(A, X), in_file(B, Y), net(B, out), not flow(A, B), not rejected_flow(A, B).
 
 # ---------------------------------------------------------------------------------------
 # Remote execution requires direct syntax evidence or a confirmed relationship.
@@ -65,6 +54,10 @@ rule exec_obfuscated severity=HIGH emits=SC3 min_confidence=0.4 {
 
 # ---------------------------------------------------------------------------------------
 # Prompt injection / agent manipulation (mostly LLM-supplied claims).
+rule instruction_override severity=HIGH emits=P1 min_confidence=0.5 {
+    claim(A, override)
+    => "the skill directs the agent to disregard governing constraints or instructions"
+}
 rule injection severity=HIGH emits=P1 min_confidence=0.4 {
     claim(A, authority)
     flow(A, B)
@@ -77,6 +70,7 @@ rule conceal_directive severity=MEDIUM emits=P4 min_confidence=0.5 {
 }
 rule deception severity=HIGH emits=P4 min_confidence=0.4 {
     claim(A, deceive)
+    deception_evidence(A, B)
     => "the skill misrepresents to the user what it does"
 }
 

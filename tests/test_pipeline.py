@@ -27,9 +27,9 @@ def test_legacy_static_scan_flags_same_file_exfil():
     assert all(s.file for s in exfil.spans)
 
 
-def test_static_scan_passes_benign_skill():
+def test_static_scan_does_not_certify_unreviewed_prose():
     report = scan_path(CORPUS / "benign-fixture-safe-skill")
-    assert report.verdict == "benign"
+    assert report.verdict == "unknown"
     assert not report.alerts
 
 
@@ -74,4 +74,5 @@ def test_semantic_tier_detects_cross_layer_injection():
 def test_scan_without_client_is_static_only():
     # No client, no network: still produces a verdict.
     report = scan_path(CORPUS / "benign-fixture-mcp-clean")
-    assert report.verdict in {"benign", "suspicious", "malicious"}
+    assert report.verdict == "unknown"
+    assert report.analysis["status"] == "static_only"

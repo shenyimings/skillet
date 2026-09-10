@@ -90,7 +90,15 @@ def scan(
     alerts = _collect_alerts(result, rules)
     verdict = _verdict(alerts)
     if not alerts and (
-        (agent is not None and not analysis.get("coverage_complete")) or package.issues
+        (
+            not legacy
+            and (
+                agent is None
+                or not analysis.get("coverage_complete")
+                or result.facts.match("ReviewNeeded")
+            )
+        )
+        or package.issues
     ):
         verdict = "unknown"
     return ScanReport(

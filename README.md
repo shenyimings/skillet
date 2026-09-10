@@ -91,3 +91,13 @@ in the corpus is executed by the test suite. See `benchmark/README.md`.
 
 MIT. Third-party sample content retains its upstream licence; see each sample's manifest
 entry for `source_url` and `licence`.
+
+### V3 evidence and completion contract (protocol 5)
+
+Static-only scans with no alert now return `unknown`: they have not completed natural-language review. Lexical matches in Markdown/config become anchored `LexicalHint` candidates rather than asserted reads, writes, network actions or secrets. The agent must ground the corresponding behavior. Executable-code extraction remains static first.
+
+Secret/network co-presence creates `ReviewNeeded`, not an exfiltration alert. An unresolved candidate prevents a benign verdict; a confirmed flow still triggers exfiltration. Deception requires distinct, non-overlapping cited evidence for the user-facing claim and conflicting behavior. Explicit instructions to disregard governing constraints have their own `instruction_override` rule; concealment is not required.
+
+Unread files take priority in the compact working state. The last of the 20 allowed model calls is reserved for final submission; incomplete coverage stays unknown. Three consecutive turns without new evidence, decisions or file reviews terminate as `stalled`, also unknown absent an alert. This is a no-progress guard, not a three-call limit. Total-token and cumulative-read budgets remain unset. The actual serialized provider payload is compacted before reservation while preserving fresh source text; irreducibly oversized requests are rejected. Context remains capped at 16k tokens.
+
+Protocol 5 logs retain exact source spans and tool/usage events. Protocol 3 and 4 logs retain their original extraction semantics during replay. Existing evaluation outputs must not be overwritten. Held-out data is reserved for evaluation and must not be used for development.

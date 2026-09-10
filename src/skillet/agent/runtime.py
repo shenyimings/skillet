@@ -146,6 +146,10 @@ class PiAgent:
         if method in {"context_audit", "message"}:
             host.event(method, **params)
             return {}
+        if method == "stalled":
+            host.status = "stalled"
+            host.event("stalled", **params)
+            return host.report()
         if method == "protocol_error":
             host.status = "protocol_error"
             host.event("protocol_error", **params)

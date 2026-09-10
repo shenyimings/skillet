@@ -17,7 +17,13 @@ def working_set(host) -> dict:
             return False
         return True
 
-    files = sorted(host.files.items(), key=lambda item: item[0] in host.reviewed)
+    files = sorted(
+        host.files.items(),
+        key=lambda item: (
+            host.read_state(item[0])["next_unread"] is None,
+            item[0] in host.reviewed,
+        ),
+    )
     for fid, file in files[:5]:
         handles = [
             {"source": h, "start": start, "end": start + len(text.encode())}
@@ -54,6 +60,7 @@ def working_set(host) -> dict:
 
     for predicate in (
         "StrongSecret",
+        "LexicalHint",
         "Net",
         "Claim",
         "Read",

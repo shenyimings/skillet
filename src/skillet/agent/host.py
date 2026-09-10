@@ -47,7 +47,7 @@ class AgentHost(SnapshotTools):
         facts: FactSet,
         budget: Budget | None = None,
         event_sink: Callable[[dict], None] | None = None,
-        protocol_version: int = 4,
+        protocol_version: int = 5,
     ):
         budget = budget or Budget()
         self.protocol_version = protocol_version
@@ -153,6 +153,12 @@ class AgentHost(SnapshotTools):
         all_read = all(c["read_bytes"] == c["total_bytes"] for c in covered.values())
         pending_edges = sum(pair not in self.decisions for pair in self.candidates())
         return {
+            "progress": [
+                sum(c["read_bytes"] for c in covered.values()),
+                len(self.facts),
+                len(self.decisions),
+                len(self.reviewed),
+            ],
             "files": len(self.files),
             "static_and_admitted_facts": len(self.facts),
             "remaining_calls": self.budget.max_calls - self.calls,
@@ -172,9 +178,13 @@ class AgentHost(SnapshotTools):
             "reviewed_edges": len(self.decisions),
             "admitted_observations_and_edges": self.added,
             "pending_edge_count": pending_edges,
-            "next_action": "finish" if all_read and not pending_edges else "review",
+            "frontier_complete": all_read and not pending_edges,
+            "next_action": "finish"
+            if (all_read and not pending_edges)
+            or (self.protocol_version >= 5 and self.calls >= self.budget.max_calls - 1)
+            else "review",
             "unread_files": sum(
-                not any(r[0] == fid for r in self.reads.values()) for fid in self.files
+                self.read_state(fid)["next_unread"] is not None for fid in self.files
             ),
             "status": self.status,
             "working_set": working_set(self),

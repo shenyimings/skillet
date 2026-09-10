@@ -8,7 +8,7 @@ const page = { offset: optional(integer()) };
 const anchor = { source: string(), offset: optional(integer()) };
 const labels = ["reads_sensitive", "reads_personal", "sends_outward", "fetches_remote",
   "executes_code", "writes_agent_state", "claims_authority", "asks_to_conceal",
-  "claims_persistent", "misrepresents", "instructs_agent"];
+  "claims_persistent", "overrides_constraints", "misrepresents", "instructs_agent"];
 // Each action has its own exact argument schema, including the closed label vocabulary.
 export const actions = {
   files: object(page), facts: object({ ...page, predicate: optional(string()) }),
@@ -20,7 +20,7 @@ export const actions = {
   recall: object({ record: string(), start: optional(integer()),
     size: optional(Type.Integer({ minimum: 1, maximum: 1000 })) }),
   review: object({ file: fileId(), reason: string(300) }),
-  observe: object({ ...anchor, label: object({
+  observe: object({ ...anchor, support: optional(object({ ...anchor, quote: string(600) })), label: object({
     observation: Type.Union(labels.map(value => Type.Literal(value))),
     quote: string(600), confidence: Type.Number({ minimum: 0, maximum: 1 }),
     detail: optional(Type.String({ maxLength: 120 })),

@@ -15,11 +15,11 @@ def replay(path: Path, package: SkillPackage) -> AgentHost:
     if not events or events[0].get("kind") != "snapshot":
         raise ValueError("audit is missing its initial snapshot")
     version = events[0].get("schema_version", 3)
-    if version not in {3, 4}:
+    if version not in {3, 4, 5}:
         raise ValueError("unsupported audit schema version")
     host = AgentHost(
         package,
-        static_facts(package, legacy=version == 3),
+        static_facts(package, legacy=version == 3, protocol_version=version),
         Budget(**events[0]["budget"]),
         protocol_version=version,
     )
