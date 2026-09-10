@@ -67,7 +67,7 @@ are charged at their original reservation before resumption.
 | Per-skill limit | Default |
 |---|---:|
 | Model requests | 20 |
-| Cumulative accounted tokens | 24,000 |
+| Cumulative accounted tokens | No limit by default; optional explicit cap |
 | Single context including output reservation | 16,000 tokens maximum |
 | Serialized request body | 12,000 UTF-8 bytes maximum |
 | Maximum completion tokens per request | 768 |
@@ -83,7 +83,8 @@ system prompt, tool schema and tool results. It is **not an exact tokenizer or a
 cap**: provider framing/tokenization can differ. Actual usage (input, cache and output)
 replaces the reservation; a reported context overrun stops further work. The separate
 wire-byte cap provides additional headroom under the requested 16k-token context ceiling.
-The cumulative 24k allowance is across turns, not a 24k context window.
+An optional cumulative token allowance applies across turns, separately from the
+16k context window. By default usage is recorded without a cumulative token cutoff.
 
 Thinking is explicitly disabled in the DeepSeek-compatible request. SDK/provider retries
 are disabled, including 402/429/5xx. Exhausted budgets stop before the next dispatch.

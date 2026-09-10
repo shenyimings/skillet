@@ -76,7 +76,7 @@ def scan(
     llm: bool = typer.Option(False, "--agent", "--llm", help="bounded Pi semantic review"),
     plan: bool = typer.Option(False, "--plan", help="show static plan, no model requests"),
     max_calls: int = typer.Option(20, min=1, help="hard model request limit"),
-    max_tokens: int = typer.Option(24000, min=1, help="total token allowance across requests"),
+    max_tokens: int | None = typer.Option(None, min=1, help="optional cumulative token limit"),
     audit: str | None = typer.Option(None, help="new JSONL audit path; never overwritten"),
     show_facts: bool = typer.Option(False, help="print the derived fact base"),
 ) -> None:

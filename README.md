@@ -55,13 +55,16 @@ PI_DIR=$(python -c 'from skillet.agent.runtime import BRIDGE; print(BRIDGE.paren
 npm ci --prefix "$PI_DIR" --ignore-scripts
 skillet scan path/to/skill --plan           # no model calls
 skillet scan path/to/skill                  # static only
-skillet scan path/to/skill --agent --max-calls 20 --max-tokens 24000
+skillet scan path/to/skill --agent --max-calls 20
 ```
 
 The last command intentionally calls the configured DeepSeek-compatible API. Export
 `SKILLET_LLM_API_KEY` (or `DEEPSEEK_API_KEY`), or configure the caller's `.env` as shown
 in `.env.example`; never load configuration from the scanned sample. `SKILLET_NODE`
 can select an isolated Node executable without changing the system Node.
+
+Cumulative token accounting is unlimited by default; use `--max-tokens N` only when
+an explicit cumulative cap is desired. Single-request context limits still apply.
 
 Every agent run writes a new `.cache/agent/*.jsonl` log. `--audit PATH` selects another
 new path. Existing logs are never overwritten. To reconstruct state offline:

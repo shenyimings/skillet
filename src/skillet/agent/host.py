@@ -21,7 +21,7 @@ from .tools import SnapshotTools
 @dataclass(frozen=True)
 class Budget:
     max_calls: int = 20
-    max_total_tokens: int = 24000
+    max_total_tokens: int | None = None
     max_output_tokens: int = 768
     max_context_bytes: int = 12000
     max_context_tokens: int = 16000
@@ -32,6 +32,8 @@ class Budget:
 
     def __post_init__(self) -> None:
         for key, val in asdict(self).items():
+            if key == "max_total_tokens" and val is None:
+                continue
             if type(val) is not int or val <= 0:
                 raise ValueError(f"{key} must be a positive integer")
         if self.max_context_tokens > 16000:
@@ -98,7 +100,10 @@ class AgentHost(SnapshotTools):
             or self.calls >= self.budget.max_calls
             or payload_bytes > self.budget.max_context_bytes
             or reservation > self.budget.max_context_tokens
-            or self.tokens + reservation > self.budget.max_total_tokens
+            or (
+                self.budget.max_total_tokens is not None
+                and self.tokens + reservation > self.budget.max_total_tokens
+            )
         ):
             self.status = "budget_exhausted"
             raise ValueError("model request budget exhausted before dispatch")
@@ -126,7 +131,9 @@ class AgentHost(SnapshotTools):
             self.status = "provider_error" if stop_reason == "error" else "incomplete"
         elif not total:
             self.status = "usage_unknown"
-        elif self.tokens >= self.budget.max_total_tokens:
+        elif (
+            self.budget.max_total_tokens is not None and self.tokens >= self.budget.max_total_tokens
+        ):
             self.status = "budget_exhausted"
         elif total > self.budget.max_context_tokens:
             self.status = "context_overrun"
@@ -140,7 +147,11 @@ class AgentHost(SnapshotTools):
             "files": len(self.files),
             "static_and_admitted_facts": len(self.facts),
             "remaining_calls": self.budget.max_calls - self.calls,
-            "remaining_tokens": self.budget.max_total_tokens - self.tokens,
+            "remaining_tokens": (
+                None
+                if self.budget.max_total_tokens is None
+                else self.budget.max_total_tokens - self.tokens
+            ),
             "remaining_read_bytes": self.budget.max_read_bytes - self.read_bytes,
             "notes": self.notes,
             "latest_records": list(self.records)[-6:],

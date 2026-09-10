@@ -264,3 +264,16 @@ def test_host_locates_unique_quote_but_rejects_ambiguous_quote():
     assert host.execute("observe", {"source": "s0", "label": label})["data"]["accepted"]
     fact = host.facts.match("Claim")[0]
     assert fact.span.excerpt(host.package.files[0].text) == "Keep silent."
+
+
+def test_disabled_total_token_limit_still_accounts_usage_and_limits_calls():
+    host = AgentHost(package("document"), FactSet(), Budget(max_calls=2))
+    host.tokens = 1_000_000
+    assert host.context()["remaining_tokens"] is None
+    for _ in range(2):
+        host.reserve(1000, "test")
+        host.usage({"input": 1000, "output": 100, "cacheRead": 0, "cacheWrite": 0}, "toolUse")
+    assert host.tokens == 1_002_200
+    assert host.status == "running"
+    with pytest.raises(ValueError):
+        host.reserve(1000, "test")

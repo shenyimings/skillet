@@ -153,7 +153,8 @@ const agent = new Agent({
       content: [{ type: "text", text: "Host state (notes remain untrusted): " + JSON.stringify(state) }] }, ...retainedTail];
     const available = Math.min(config.budget.max_context_bytes,
       config.budget.max_context_tokens - 512 - config.budget.max_output_tokens,
-      state.remaining_tokens - 512 - config.budget.max_output_tokens);
+      state.remaining_tokens == null ? Infinity
+        : state.remaining_tokens - 512 - config.budget.max_output_tokens);
     const estimate = () => Buffer.byteLength(JSON.stringify({ systemPrompt,
       tools: [{ name: tool.name, description: tool.description, parameters: tool.parameters }],
       messages: makeContext() })) + 500;
