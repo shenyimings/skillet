@@ -52,6 +52,49 @@ HELDOUT_FRACTION = 0.30  # standard held-out share; stratified by class
 # of the corpus, and the measured rate would describe those repos rather than the ecosystem.
 MAX_SKILLS_PER_REPO = 5
 
+# Binary blobs the scanner never reads. Skills ship screenshots, demo GIFs and vendored
+# databases; keeping them would put a hundred megabytes of media in the repository without
+# adding a byte of scannable content.
+SKIP_PATTERNS = (
+    ".git",
+    "*.duckdb",
+    "*.sqlite",
+    "*.sqlite3",
+    "*.db",
+    "*.parquet",
+    "*.zip",
+    "*.tar",
+    "*.gz",
+    "*.tgz",
+    "*.whl",
+    "*.jar",
+    "*.gif",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.webp",
+    "*.svg",
+    "*.ico",
+    "*.bmp",
+    "*.mp4",
+    "*.mov",
+    "*.webm",
+    "*.mp3",
+    "*.wav",
+    "*.pdf",
+    "*.woff",
+    "*.woff2",
+    "*.ttf",
+    "*.otf",
+    "*.eot",
+    "*.pyc",
+    "*.so",
+    "*.dylib",
+    "*.dll",
+    "*.wasm",
+    "*.node",
+)
+
 
 @dataclass(frozen=True)
 class Repo:
@@ -168,7 +211,7 @@ def main() -> None:
             CACHE / repo.classification / repo.slug / rel,
             dest,
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(".git", "*.duckdb", "*.sqlite", "*.zip", "*.parquet"),
+            ignore=shutil.ignore_patterns(*SKIP_PATTERNS),
             ignore_dangling_symlinks=True,
         )
         lines.append(f"{split}\t{repo.classification}\t{repo.owner}/{repo.name}\t{sha}\t{rel}")

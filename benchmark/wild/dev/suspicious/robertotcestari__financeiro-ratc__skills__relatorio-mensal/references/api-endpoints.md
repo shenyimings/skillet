@@ -1,0 +1,326 @@
+# API Endpoints Reference
+
+## Contents
+
+- Transactions
+- Inadimplentes
+- Contas a Pagar
+- Backups
+- OFX Import
+- Suggestions
+- Reports
+- Reference Data
+- Rules
+- Transfers
+- Health Check
+
+Base URL: `$RATC_API_URL` (e.g., `https://financeiro.ratc.com.br/api/v1`)
+
+**Interactive docs (Swagger UI):** https://financeiro.ratc.com.br/api/v1/doc
+
+All endpoints require: `Authorization: Bearer $RATC_API_KEY`
+
+## Transactions
+
+### List Transactions
+```
+GET /transactions?year=YYYY&month=MM&hasCategory=false&limit=500
+```
+Query params: `year`, `month`, `bankAccountId`, `categoryId`, `hasCategory` (true/false), `isReviewed` (true/false), `page`, `limit` (max 500)
+
+### Get Transaction Detail
+```
+GET /transactions/{id}
+```
+
+### Create Manual Transaction
+```
+POST /transactions
+Body: { bankAccountId, date: "YYYY-MM-DD", description, amount, categoryId?, propertyId?, details? }
+```
+
+### Categorize Transaction
+```
+PUT /transactions/{id}/categorize
+Body: { categoryId?: string|null, propertyId?: string|null, markReviewed?: boolean }
+```
+
+### Bulk Categorize
+```
+POST /transactions/bulk-categorize
+Body: { ids: string[], categoryId?, propertyId?, markReviewed? }
+```
+⚠️ Retorna `{"success":true}` mesmo quando nenhum `id` casa (no-op silencioso). Use o ID COMPLETO da transação e confirme com `GET /transactions/{id}` que a categoria foi aplicada. NÃO passe `markReviewed: true` neste workflow.
+Obs.: `details` (ex.: detalhe "IA") não é setado por este endpoint — use `PUT /transactions/{id}/details`.
+
+### Mark Reviewed
+```
+PUT /transactions/{id}/review
+Body: { reviewed: boolean }
+```
+
+### Update Details
+```
+PUT /transactions/{id}/details
+Body: { details: string|null }
+```
+
+### Bulk Delete
+```
+POST /transactions/bulk-delete
+Body: { ids: string[] }
+```
+
+## Inadimplentes
+
+### List Inadimplentes
+```
+GET /inadimplentes
+Returns: { data: [{ id, data: { propertyId, tenant, amount, dueDate, settled } }] }
+```
+
+### Get Inadimplente Detail
+```
+GET /inadimplentes/{id}
+Returns: { data: { id, data: { propertyId, tenant, amount, dueDate, settled } } }
+```
+
+### Create Inadimplente
+```
+POST /inadimplentes
+Body: { propertyId, tenant, amount, dueDate: "YYYY-MM-DD", settled }
+Returns: { data: { id, data: { ... } } }
+```
+
+### Update Inadimplente
+```
+PUT /inadimplentes/{id}
+Body: { propertyId, tenant, amount, dueDate: "YYYY-MM-DD", settled }
+Returns: { data: { id, data: { ... } } }
+```
+
+### Delete Inadimplente
+```
+DELETE /inadimplentes/{id}
+Returns: { success: true }
+```
+
+## Backups
+
+### Create Database Backup
+```
+POST /backups
+Returns: { success, filename, filepath, sizeBytes, sizeHuman, durationMs, createdAt }
+```
+
+## OFX Import
+
+### Parse OFX
+```
+POST /ofx/parse
+Body: { fileContent: string }
+Returns: { success, version, format, accounts[], transactions[], errors[] }
+```
+
+### Preview Import
+```
+POST /ofx/preview
+Body: { fileContent: string, bankAccountId: string }
+Returns: { success, transactions[], summary: { totalTransactions, validTransactions, duplicateTransactions, uniqueTransactions } }
+```
+
+### Execute Import
+```
+POST /ofx/import
+Body: {
+  fileContent: string,
+  bankAccountId: string,
+  transactionActions: Record<id, "import"|"skip"|"review">,
+  transactionCategories?: Record<id, categoryId|null>,
+  transactionProperties?: Record<id, propertyId|null>
+}
+Returns: { success, importBatchId, importedCount, skippedCount, failedCount }
+```
+
+## Imobzi Import (REST, roda em produção com as credenciais do servidor)
+
+Estes endpoints existem no `/api/v1` e usam as credenciais Imobzi do servidor — úteis para importar os boletos do PJBank sem SSH.
+
+### Preview Imobzi
+```
+POST /imobzi/preview
+Body: { startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD", bankAccountId: string }
+Returns: { success, summary: { total, income, expense, transfer, duplicates, new }, transactions[] }
+```
+
+### Import Imobzi
+```
+POST /imobzi/import
+Body: { startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD", bankAccountId: string }
+Returns: { success, importBatchId, importedCount, skippedCount, failedCount }
+```
+Observação: o import traz apenas créditos (boletos de aluguel) e tarifas bancárias. As saídas Pix (varredura do PJBank para a conta principal) NÃO vêm no Imobzi — crie-as manualmente como `Transferência Entre Contas` (ver `pjbank-imobzi.md`).
+
+## Suggestions
+
+### Generate Suggestions
+```
+POST /suggestions/generate
+Body: { transactionIds: string[], ruleIds?: string[] }
+Returns: { processed, suggested, matched }
+```
+
+### Get Suggestions for Transaction
+```
+GET /suggestions/{transactionId}
+Returns: { data: Suggestion[] }
+```
+
+### Apply Suggestion
+```
+POST /suggestions/{id}/apply
+```
+
+### Bulk Apply
+```
+POST /suggestions/bulk-apply
+Body: { suggestionIds: string[] }
+```
+
+### Dismiss Suggestion
+```
+DELETE /suggestions/{id}
+```
+
+### Bulk Dismiss
+```
+POST /suggestions/bulk-dismiss
+Body: { suggestionIds: string[] }
+```
+
+## Reports
+
+### Send Monthly Report Email
+```
+POST /reports/monthly/send
+Body: { year: number, month: number, recipients: string[] }
+Returns: { success, messageId? }
+```
+
+## Reference Data
+
+### Categories
+```
+GET /categories
+Returns: { data: [{ id, name, level, orderIndex, parentId }] }
+```
+
+### Bank Accounts
+```
+GET /bank-accounts
+Returns: { data: [{ id, name, bankName, accountType, isActive, balance, balanceDate }] }
+```
+
+### Properties
+```
+GET /properties
+Returns: { data: [{ id, code, description, city, address }] }
+```
+
+### DRE
+```
+GET /dre?year=YYYY&month=MM
+Returns: { data: [{ id, name, level, lineType, amount, isBold, showInReport }], period: { year, month } }
+```
+
+## Rules
+
+### List Rules
+```
+GET /rules?isActive=true&page=1&limit=50
+```
+
+### Create Rule
+```
+POST /rules
+Body: { name, description?, isActive, priority, criteria, categoryId?, propertyId? }
+```
+
+### Apply Rule Retroactively
+```
+POST /rules/{id}/apply
+Body: { transactionIds: string[] }
+```
+
+## Transfers
+
+### Detect Potential Transfers
+```
+POST /transfers/detect
+Body: { startDate: "YYYY-MM-DD", endDate: "YYYY-MM-DD" }
+```
+
+### Confirm Transfer
+```
+POST /transfers/confirm
+Body: { originTransactionId, destinationTransactionId }
+```
+
+## Contas a Pagar
+
+Operacional (não lança no DRE). Parcelas em aberto do mês entram no check informativo do fechamento.
+
+### Listar parcelas
+```
+GET /payables?year=YYYY&month=MM&status=OPEN
+Query: status, vendorId, propertyId, categoryId, dueFrom, dueTo, overdue=true|false, year, month
+Returns: { data: [{ id, payableId, dueDate, amount, remainingAmount, status, isOverdue, vendorName, description, propertyCode }] }
+```
+
+### Criar título
+```
+POST /payables
+Body: { vendorId, description, categoryId?, propertyId?, installments: [{ dueDate, amount, paymentMethod?, boletoLine? }] }
+```
+
+### Detalhar / atualizar / cancelar
+```
+GET /payables/{id}
+PATCH /payables/{id}
+POST /payables/{id}/cancel
+Body: { reason? }
+```
+
+### Agenda
+```
+GET /payables/agenda?from=YYYY-MM-DD&to=YYYY-MM-DD
+```
+
+### Baixa e estorno
+```
+POST /payable-installments/{id}/settlements
+Body: { bankAccountId, paidAt, amount?, method?, transactionId?, notes? }
+
+POST /payable-settlements/{id}/reverse
+Body: { reason? }
+```
+
+### Fornecedores
+```
+GET /vendors
+POST /vendors
+PATCH /vendors/{id}
+GET /vendors/{id}
+```
+
+### Gerar recorrência
+```
+POST /payables/recurrences/{id}/generate
+Body: { year, month }
+```
+
+## Health Check (no auth)
+```
+GET /health
+Returns: { status: "ok", version: "1.0.0" }
+```

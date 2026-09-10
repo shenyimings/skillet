@@ -1,0 +1,34 @@
+<template>
+	<div class="mb-4">
+		<UiButton @click="click1">Success Message</UiButton>
+	</div>
+	<div class="mb-4">
+		<UiButton @click="click2">Info Message</UiButton>
+	</div>
+	<div class="mb-4">
+		<UiButton @click="click3">Error Message</UiButton>
+	</div>
+	<div class="mb-4">
+		<UiButton @click="click4">Warning Message</UiButton>
+	</div>
+	<UiMessage ref="messageRef"></UiMessage>
+</template>
+<script lang="ts" setup>
+import { ref } from 'vue';
+import UiButton from '@e-cloud/eslink-plus-uniapp/components/ui-button/ui-button.vue';
+import UiMessage from '@e-cloud/eslink-plus-uniapp/components/ui-message/ui-message.vue';
+
+const messageRef = ref();
+const click1 = () => {
+	messageRef.value.success('Success Message');
+};
+const click2 = () => {
+	messageRef.value.info('Info Message');
+};
+const click3 = () => {
+	messageRef.value.error('Error Message');
+};
+const click4 = () => {
+	messageRef.value.warning('Warning Message');
+};
+</script>
