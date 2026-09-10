@@ -23,7 +23,7 @@ class Budget:
     max_calls: int = 20
     max_total_tokens: int | None = None
     max_output_tokens: int = 768
-    max_context_bytes: int = 12000
+    max_context_bytes: int = 14000
     max_context_tokens: int = 16000
     max_tool_calls: int = 80
     max_read_bytes: int | None = None

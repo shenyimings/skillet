@@ -41,14 +41,15 @@ or LLM-based compaction are used. RLM alone is not a state-management scheme.
 | Scratchpad | Host, maximum 1,000 UTF-8 bytes | Every request; treated as untrusted notes |
 | Full tool outputs | Host `rN` records | Latest bounded result or explicit paged recall |
 | Usage and events | Append-only JSONL, flushed and fsynced after every event | Remaining budget only |
-| Conversation history | Pi in-process history plus audit events | Bootstrap, current host state, latest complete tool turn |
+| Conversation history | Pi in-process history plus audit events | Bootstrap, current host state, latest tool results as untrusted data |
 
-Old tool-call/result pairs are evicted together. A long recent result is replaced with
+Assistant tool-call history is omitted from each rebuilt request; latest results are
+carried as explicitly untrusted data. A long recent result is replaced with
 a bounded excerpt and record ID; `recall` pages the serialized result. No hidden
 model-generated summary becomes the source of truth. Under budget pressure, resolved
 history and working-set detail are dropped before dispatch. Fresh source tool results
-are retained until their first model delivery. Resumed runs use a shorter continuation
-prompt so a full setup prompt does not crowd out the final review step. Notes cannot create facts or
+are retained until their first model delivery. Initial and resumed runs share the same
+compact tool policy; a resumption preserves completed work. Notes cannot create facts or
 resolve edges by themselves. Malicious sample instructions remain untrusted in all stores.
 
 The log is exclusively created **before** model dispatch; prior results are not overwritten.
@@ -69,7 +70,7 @@ are charged at their original reservation before resumption.
 | Model requests | 20 |
 | Cumulative accounted tokens | No limit by default; optional explicit cap |
 | Single context including output reservation | 16,000 tokens maximum |
-| Serialized request body | 12,000 UTF-8 bytes maximum |
+| Serialized request body | 14,000 UTF-8 bytes maximum |
 | Maximum completion tokens per request | 768 |
 | Tool invocations | 80 (independent of the 20 model-request cap) |
 | Cumulative source bytes | No default limit; optional explicit cap |
@@ -158,10 +159,16 @@ path and network lexical fallbacks remain imperfect and may still match examples
 Audit replay selects the recorded version, preserving schema-3 extraction/read semantics.
 The original results remain separate from subsequent evaluations.
 
-At a resolved read/edge frontier, the runtime starts a fresh final-review context. Latest
+Every request uses a fresh context projection. At a resolved read/edge frontier, the runtime
+requires a final structured submission. Latest
 source/tool results remain as explicitly untrusted data; obsolete assistant tool calls are
 removed. The provider is asked for a structured `finish` submission, which can include
 up to six remaining observations and six edges. Empty findings are valid. Invalid evidence
 does not complete the review. File schemas enumerate snapshot IDs for small packages.
 Calling a tool outside the advertised phase stops with `protocol_error`, without granting
 coverage completion. Dispatch audits record offered tools, phase and tool choice.
+
+The nested final-submission schema is exposed only at the final-review frontier; ordinary
+reading requests carry an empty early-finish schema. This leaves space for several fresh
+source results within the 14KB wire gate. Including 512 framing and 768 output reservation,
+this remains below the unchanged 16k-token ceiling.

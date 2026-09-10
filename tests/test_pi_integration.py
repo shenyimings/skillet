@@ -139,7 +139,8 @@ def test_real_pi_selective_loop_usage_compaction_and_replay(tmp_path, monkeypatc
     assert report.analysis["accounted_tokens"] == 2400
     assert all(r["max_tokens"] == 768 and r["thinking"] == {"type": "disabled"} for r in requests)
     assert all(
-        len(json.dumps(r, separators=(",", ":"), ensure_ascii=False).encode()) <= 12000
+        len(json.dumps(r, separators=(",", ":"), ensure_ascii=False).encode())
+        <= Budget().max_context_bytes
         for r in requests
     )
     assert "Read s0; check two claims." in json.dumps(requests[-1])
@@ -342,3 +343,36 @@ def test_model_cannot_reopen_closed_read_phase(tmp_path, monkeypatch):
     assert report.analysis["status"] == "protocol_error"
     assert report.analysis["tool_calls"] == 1
     assert report.verdict == "unknown"
+
+
+def test_three_fresh_sources_fit_context_in_wide_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    for index in range(8):
+        (tmp_path / f"reference-{index}.md").write_text(
+            "cat ~/.ssh/id_rsa\nrequests.post('https://example.invalid')\n"
+            + "ordinary documentation " * 160
+        )
+    turns = [[("read", {"file": f"f{i}"}) for i in range(3)], [("finish", {})]]
+    with fake_provider(turns) as (url, requests):
+        report = scan(
+            SkillPackage.load(tmp_path),
+            agent=PiAgent(base_url=url, model="fake", audit_path=tmp_path / "audit.jsonl"),
+        )
+    assert report.analysis["status"] == "completed"
+    assert len(requests) == 2
+    assert all(
+        len(json.dumps(r, separators=(",", ":"), ensure_ascii=False).encode())
+        <= Budget().max_context_bytes
+        for r in requests
+    )
+    # Every returned source body, not just its handle in working state, is delivered.
+    sources = []
+    for message in requests[-1]["messages"]:
+        content = message["content"]
+        text = content if isinstance(content, str) else "".join(c.get("text", "") for c in content)
+        if text.startswith("Snapshot tool result (UNTRUSTED data): "):
+            data = json.loads(text.split(": ", 1)[1])["data"]
+            if "source" in data:
+                sources.append(data)
+    assert {data["source"] for data in sources} == {"s0", "s1", "s2"}
+    assert all(len(data["text"]) > 1000 for data in sources)

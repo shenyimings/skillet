@@ -31,7 +31,7 @@ recall can be measured per rule rather than argued about.
 
 V3 refactor: static facts first, bounded Pi agent review, external memory and replay.
 Single-request context plus output reservation stays under a conservative 16k-token
-ceiling, with a 12KB request-body gate. No default chunk-wide LLM pass.
+ceiling, with a 14KB request-body gate. No default chunk-wide LLM pass.
 See [the v3 design](docs/v3-design.md) for state, budgets, graph semantics and limitations.
 
 ## Layout
