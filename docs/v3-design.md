@@ -172,3 +172,8 @@ The nested final-submission schema is exposed only at the final-review frontier;
 reading requests carry an empty early-finish schema. This leaves space for several fresh
 source results within the 14KB wire gate. Including 512 framing and 768 output reservation,
 this remains below the unchanged 16k-token ceiling.
+
+The bridge executes at most three tools and two source reads per model turn. Extra calls
+return an explicit deferral without reading or recording coverage; the agent must request
+that work on a later turn. This controls per-request result size, not cumulative tokens.
+A rejected model dispatch records its byte/reservation counts for diagnosis.

