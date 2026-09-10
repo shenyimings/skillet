@@ -20,24 +20,26 @@ skillet splits the job:
 
 | Layer | Job | Output |
 |---|---|---|
-| Static extractor | parse frontmatter, includes, scripts (tree-sitter) | `AllowedTool`, `Includes`, `NetCall`, `ShellExec`, `FileRead` |
-| LLM labeller | label each chunk under a fixed schema, no tools, no verdicts | `Imperative`, `TargetsSensitive`, `Egress`, `AuthorityClaim`, `Concealment`, `Persistence` |
-| DSL → Datalog | analyst-written rules, compiled | `Alert(skill, kind, severity)` |
+| Static extractor | frontmatter/includes, lexical fallback, Python AST | anchored `Read`, `Net`, `Exec`, `ConfirmedFlow`, etc. |
+| Pi agent | selective reads, external state, schema-checked fact/edge review | grounded observations; no verdict |
+| DSL → Datalog | compose confirmed flow and report weaker unresolved co-presence | audited alerts |
 
 Every alert is traceable to **rule + supporting facts + source span**, so precision and
 recall can be measured per rule rather than argued about.
 
 ## Status
 
-Early. Research, taxonomy and the labelled benchmark are in place; evaluator and engine
-are landing next. See `docs/` for the design and `benchmark/` for the corpus.
+V3 refactor: static facts first, bounded Pi agent review, external memory and replay.
+Single-request context plus output reservation stays under a conservative 16k-token
+ceiling, with a 12KB request-body gate. No default chunk-wide LLM pass.
+See [the v3 design](docs/v3-design.md) for state, budgets, graph semantics and limitations.
 
 ## Layout
 
 - `docs/research.md` — prior work, datasets, competing scanners
 - `docs/taxonomy.md` — the classification scheme the benchmark is labelled against
 - `benchmark/` — labelled corpus + manifest schema
-- `src/skillet/` — `facts/`, `llm/`, `dsl/`, `engine/`
+- `src/skillet/` — `facts/`, `agent/`, `llm/` (legacy), `dsl/`, `engine/`
 
 ## Development
 
@@ -46,7 +48,35 @@ uv venv && uv pip install -e ".[dev,llm]"
 pytest
 ```
 
-Copy `.env.example` to `.env` and fill in an LLM key for the semantic layer.
+For Pi review, install Node >=22.19.0 and the locked bridge dependencies:
+
+```bash
+PI_DIR=$(python -c 'from skillet.agent.runtime import BRIDGE; print(BRIDGE.parent)')
+npm ci --prefix "$PI_DIR" --ignore-scripts
+skillet scan path/to/skill --plan           # no model calls
+skillet scan path/to/skill                  # static only
+skillet scan path/to/skill --agent --max-calls 6 --max-tokens 24000
+```
+
+The last command intentionally calls the configured DeepSeek-compatible API. Export
+`SKILLET_LLM_API_KEY` (or `DEEPSEEK_API_KEY`), or configure the caller's `.env` as shown
+in `.env.example`; never load configuration from the scanned sample. `SKILLET_NODE`
+can select an isolated Node executable without changing the system Node.
+
+Every agent run writes a new `.cache/agent/*.jsonl` log. `--audit PATH` selects another
+new path. Existing logs are never overwritten. To reconstruct state offline:
+
+```python
+from pathlib import Path
+from skillet.agent.replay import replay
+from skillet.facts.package import SkillPackage
+state = replay(Path("run.jsonl"), SkillPackage.load("path/to/skill"))
+print(state.report())
+```
+
+Run `pytest` after `npm ci` to include the real Pi integration tests against a local
+fake HTTP endpoint. Without installed npm dependencies those tests are explicitly skipped.
+The test suite makes no paid model requests.
 
 ## Safety
 

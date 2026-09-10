@@ -17,8 +17,8 @@ def test_core_rules_compile_and_stratify():
     assert sum(1 for r in rules if r.head.predicate == "Alert") >= 10
 
 
-def test_static_scan_flags_same_file_exfil():
-    report = scan_path(CORPUS / "malicious-fixture-harmful-instruction")
+def test_legacy_static_scan_flags_same_file_exfil():
+    report = scan_path(CORPUS / "malicious-fixture-harmful-instruction", legacy=True)
     assert report.verdict == "malicious"
     assert "E1" in report.patterns
     # provenance is populated: the alert points at real spans.
@@ -66,7 +66,7 @@ def test_semantic_tier_detects_cross_layer_injection():
             },
         }
     )
-    report = scan(pkg, client=client)
+    report = scan(pkg, client=client, legacy=True)
     assert report.verdict == "malicious"
     assert any(a.rule == "injection" for a in report.alerts)
 

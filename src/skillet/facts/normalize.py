@@ -74,7 +74,7 @@ MAX_CONSECUTIVE_BLANK = 2  # runs longer than this are a padding attempt
 class Normalized:
     """A canonical form of some text plus the map back to original offsets.
 
-    `to_raw[i]` is the byte offset in the original text of normalised character `i`;
+    `to_raw[i]` is the character offset in the original text of normalised character `i`;
     `to_raw[len(text)]` is the original length, so a half-open normalised range maps cleanly.
     """
 
@@ -84,7 +84,9 @@ class Normalized:
     invisible_stripped: int = 0
     confusables_mapped: int = 0
     blank_runs_collapsed: int = 0
-    max_blank_run: int = 0  # longest collapsed run — a few blanks is formatting, thousands is hiding
+    max_blank_run: int = (
+        0  # longest collapsed run — a few blanks is formatting, thousands is hiding
+    )
 
     @property
     def evaded(self) -> bool:
@@ -105,7 +107,10 @@ class Normalized:
         raw_start = self.to_raw[start]
         raw_end = self.to_raw[min(end, len(self.text))]
         return Span(
-            file=file, start=raw_start, end=raw_end, line=bisect_right(raw_starts, raw_start)
+            file=file,
+            start=len(self.raw[:raw_start].encode()),
+            end=len(self.raw[:raw_end].encode()),
+            line=bisect_right(raw_starts, raw_start),
         )
 
 

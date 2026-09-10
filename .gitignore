@@ -224,3 +224,7 @@ redteam/attacks/r1-oversized-file/tools/collect.py
 # Binary media is stripped by scripts/fetch_wild.py — see SKIP_PATTERNS.
 .cache/
 benign_corpus/
+
+# Pi runtime dependencies and macOS transfer metadata
+node_modules/
+._*

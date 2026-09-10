@@ -1,11 +1,10 @@
-"""skillet command line.
-
-Only the benchmark-facing commands exist yet, because benchmark and evaluator come before
-the engine. `scan` is a deliberate stub so the surface is visible but nothing pretends to
-work before it does.
-"""
+"""Static scans, bounded Pi reviews, offline planning and benchmark commands."""
 
 from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -24,7 +23,6 @@ _DETECTORS = {
     "keyword": baselines.keyword_baseline,
     "always-benign": baselines.always_benign,
     "engine-static": engine_detector(use_llm=False),
-    "engine-llm": engine_detector(use_llm=True),
 }
 
 
@@ -75,21 +73,65 @@ def list_samples() -> None:
 @app.command()
 def scan(
     path: str,
-    llm: bool = typer.Option(False, "--llm", help="also run the semantic (LLM) tier"),
+    llm: bool = typer.Option(False, "--agent", "--llm", help="bounded Pi semantic review"),
+    plan: bool = typer.Option(False, "--plan", help="show static plan, no model requests"),
+    max_calls: int = typer.Option(6, min=1, help="hard model request limit"),
+    max_tokens: int = typer.Option(24000, min=1, help="total token allowance across requests"),
+    audit: str | None = typer.Option(None, help="new JSONL audit path; never overwritten"),
     show_facts: bool = typer.Option(False, help="print the derived fact base"),
 ) -> None:
     """Scan a skill directory and print an audited report."""
-    client = None
+    from .agent import AgentHost, Budget, PiAgent
+    from .agent.static import static_facts
+    from .facts.package import SkillPackage
+
+    budget = Budget(max_calls=max_calls, max_total_tokens=max_tokens)
+    if plan:
+        package = SkillPackage.load(path)
+        host = AgentHost(package, static_facts(package), budget)
+        console.print_json(
+            json.dumps(
+                {
+                    "plan": host.context(),
+                    "budget": host.events[0]["budget"],
+                    "load_issues": package.issues,
+                }
+            )
+        )
+        return
+    agent = None
     if llm:
-        from .llm.client import DeepSeekClient
+        # Config is the caller's environment, never the sample's .env.
+        try:
+            from dotenv import load_dotenv
 
-        client = DeepSeekClient()
-    report = scan_path(path, client=client)
+            load_dotenv(Path.cwd() / ".env")
+        except ImportError:
+            pass
+        audit_path = (
+            Path(audit)
+            if audit
+            else Path(".cache/agent") / (datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + ".jsonl")
+        )
+        agent = PiAgent(budget=budget, audit_path=audit_path)
+    report = scan_path(path, agent=agent)
 
-    colour = {"benign": "green", "suspicious": "yellow", "malicious": "red"}[report.verdict]
+    colour = {"benign": "green", "suspicious": "yellow", "malicious": "red", "unknown": "yellow"}[
+        report.verdict
+    ]
     console.print(f"\n[bold]{report.skill}[/bold]: [{colour}]{report.verdict.upper()}[/{colour}]")
     if not report.alerts:
         console.print("  no findings")
+    console.print(
+        f"  analysis: {report.analysis['status']} "
+        f"(full source read: {report.analysis.get('coverage_complete', False)})"
+    )
+    if agent is not None:
+        console.print(
+            f"  calls={report.analysis['calls']}, "
+            f"accounted tokens={report.analysis['accounted_tokens']}; "
+            f"audit: {agent.audit_path}"
+        )
     for a in report.alerts:
         where = ", ".join(str(s) for s in a.spans[:4]) or "-"
         console.print(

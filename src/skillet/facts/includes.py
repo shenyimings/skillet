@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from .model import Fact, Origin, Span, line_of, line_starts
+from .model import Fact, Origin, Span
 from .package import SkillPackage
 
 EXTRACTOR = "includes"
@@ -35,7 +35,6 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
     for f in package.scannable():
         text = f.text
         assert text is not None
-        starts = line_starts(text)
         seen: set[str] = set()
 
         for pattern, confidence in ((_MD_LINK, 1.0), (_AT_REF, 1.0), (_BARE_PATH, 0.8)):
@@ -52,7 +51,7 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
                     args=(f.path, resolved),
                     origin=Origin.STATIC,
                     confidence=confidence,
-                    span=Span(f.path, m.start(), m.end(), line_of(starts, m.start())),
+                    span=Span.locate(f.path, text, m.start(), m.end()),
                     extractor=EXTRACTOR,
                 )
 

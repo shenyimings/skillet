@@ -41,11 +41,16 @@ class Span:
     @classmethod
     def locate(cls, file: str, text: str, start: int, end: int) -> Span:
         """Build a span, computing the 1-based line number of `start`."""
-        return cls(file=file, start=start, end=end, line=text.count("\n", 0, start) + 1)
+        return cls(
+            file=file,
+            start=len(text[:start].encode()),
+            end=len(text[:end].encode()),
+            line=text.count("\n", 0, start) + 1,
+        )
 
     def excerpt(self, text: str, limit: int = 120) -> str:
         """The source text this span covers, collapsed to one line for reporting."""
-        raw = " ".join(text[self.start : self.end].split())
+        raw = " ".join(text.encode()[self.start : self.end].decode(errors="replace").split())
         return raw if len(raw) <= limit else raw[: limit - 1] + "…"
 
     def __str__(self) -> str:

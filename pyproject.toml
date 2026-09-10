@@ -25,6 +25,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/skillet"]
+exclude = ["**/node_modules/**", "**/._*", "**/__pycache__/**"]
 
 [tool.ruff]
 line-length = 100

@@ -84,7 +84,7 @@ def test_constructed_endpoint_needs_the_semantic_tier():
             {"observation": "sends_outward", "quote": send_q, "confidence": 0.8},
         ]}}
     )
-    report = scan(pkg, client=client)
+    report = scan(pkg, client=client, legacy=True)
     assert report.verdict != "benign"
 
 
