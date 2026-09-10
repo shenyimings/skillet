@@ -380,8 +380,14 @@ class SnapshotTools:
         return {"accepted": True}
 
     def _finish(
-        self, observations: list | None = None, edges: list | None = None, reason: str = ""
+        self, observations: list | None = None, edges: list | None = None, reason: str = "", **extra
     ) -> dict:
+        if self.protocol_version >= 6:
+            from .submission import finish_partial
+
+            return finish_partial(self, observations, edges, reason, **extra)
+        if extra:
+            raise TypeError("unexpected finish arguments")
         if (
             not isinstance(reason, str)
             or len(reason) > 1000

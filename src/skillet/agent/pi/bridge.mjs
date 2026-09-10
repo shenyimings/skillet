@@ -82,6 +82,7 @@ let stopped = false;
 let hostState;
 let lastProgress;
 let stagnantTurns = 0;
+let flushingStall = false;
 let sourceReadsThisTurn = 0;
 let toolExecutionsThisTurn = 0;
 const activeTools = (state, available) => available
@@ -92,6 +93,7 @@ const activeTools = (state, available) => available
     if (tool.name === "finish" && state.next_action !== "finish") return {
       ...tool, parameters: { type: "object", properties: {}, additionalProperties: false },
     };
+    if (tool.name === "finish") return { ...tool, parameters: actions.finish };
     if (!tool.parameters.properties?.file || state.files > 32) return tool;
     return { ...tool, parameters: { ...tool.parameters, properties: {
       ...tool.parameters.properties, file: { type: "string",
@@ -104,7 +106,10 @@ const tools = Object.entries(actions).map(([action, parameters]) => ({
   description: ({ read: "Read next unread bytes, or explicit byte window.",
     review: "Record completed file review, including no findings.",
     finish: "Conclude review; host reports actual coverage." })[action] || action,
-  parameters, executionMode: "sequential",
+  // Keep the advertised schema strict. Validate batch items independently in the
+  // host instead of allowing SDK validation to discard valid sibling evidence.
+  parameters: action === "finish" ? { type: "object", properties: {}, additionalProperties: true } : parameters,
+  executionMode: "sequential",
   execute: async (_id, args) => {
     if (stopped) return { content: [{ type: "text", text: "run stopped" }], details: {}, terminate: true };
     if (!activeTools(hostState, tools).some(tool => tool.name === action)) {
@@ -138,10 +143,20 @@ const agent = new Agent({
       const progress = JSON.stringify(hostState.progress);
       stagnantTurns = progress === lastProgress ? stagnantTurns + 1 : 0;
       lastProgress = progress;
-      if (stagnantTurns >= 3) {
+      if (flushingStall) {
         stopped = true;
         await rpc("stalled", { reason: "three turns without new evidence, decisions or reviewed files" });
         throw new Error("review stalled");
+      }
+      if (stagnantTurns >= 3) {
+        // Use one remaining ordinary call to flush accumulated evidence, without
+        // resetting the call limit or discarding any admitted facts.
+        flushingStall = true;
+        hostState.next_action = "finish";
+        payload.tools = payload.tools.filter(t => t.function?.name === "finish");
+        payload.tools[0].function.parameters = actions.finish;
+        await rpc("context_audit", { phase: "flush_stalled",
+          reason: "submit existing findings once before stopping; no extra call allowance" });
       }
       sourceReadsThisTurn = 0;
       toolExecutionsThisTurn = 0;

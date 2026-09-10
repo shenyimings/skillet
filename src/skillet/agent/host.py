@@ -47,10 +47,12 @@ class AgentHost(SnapshotTools):
         facts: FactSet,
         budget: Budget | None = None,
         event_sink: Callable[[dict], None] | None = None,
-        protocol_version: int = 5,
+        protocol_version: int = 6,
     ):
         budget = budget or Budget()
         self.protocol_version = protocol_version
+        self.initial_fact_keys = facts.keys().copy()
+        self.submission_errors: list[dict] = []
         self.reviewed: dict[str, str] = {}
         self.package, self.facts, self.budget = package, facts, budget
         self.files = {f"f{i}": f for i, f in enumerate(package.files)}
@@ -254,4 +256,13 @@ class AgentHost(SnapshotTools):
             "read_bytes": self.read_bytes,
             "observations_and_edges": self.added,
             "load_issues": self.package.issues,
+            **(
+                {
+                    "partial_results_retained": True,
+                    "added_fact_count": len(self.facts.keys() - self.initial_fact_keys),
+                    "submission_errors": self.submission_errors,
+                }
+                if self.protocol_version >= 6
+                else {}
+            ),
         }

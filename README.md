@@ -101,3 +101,12 @@ Secret/network co-presence creates `ReviewNeeded`, not an exfiltration alert. An
 Unread files take priority in the compact working state. The last of the 20 allowed model calls is reserved for final submission; incomplete coverage stays unknown. Three consecutive turns without new evidence, decisions or file reviews terminate as `stalled`, also unknown absent an alert. This is a no-progress guard, not a three-call limit. Total-token and cumulative-read budgets remain unset. The actual serialized provider payload is compacted before reservation while preserving fresh source text; irreducibly oversized requests are rejected. Context remains capped at 16k tokens.
 
 Protocol 5 logs retain exact source spans and tool/usage events. Protocol 3 and 4 logs retain their original extraction semantics during replay. Existing evaluation outputs must not be overwritten. Held-out data is reserved for evaluation and must not be used for development.
+
+
+### Incremental evidence retention (protocol 6)
+
+Every admitted fact and edge survives incomplete review and participates in Datalog evaluation. `unknown` expresses incomplete clean-review coverage; it never means the evidence set is empty. Reports now expose `added_fact_count`, `partial_results_retained`, and indexed `submission_errors` in addition to accepted observation/edge counts.
+
+A final batch is validated item by item by the host. Valid siblings are admitted even if another item or top-level field is malformed. The model still sees the strict schema; only batch transport validation is permissive. Source grounding, label validation and edge checks remain mandatory. A rejected item ends the batch as `incomplete_submission`, preserving accepted facts and preventing a false benign verdict. Unanchored prose or malformed labels are not silently converted to facts.
+
+After three unproductive turns, the runtime requests one final evidence submission within the existing 20-call allowance, then stops if that submission fails. This supersedes protocol 5's immediate no-progress stop. No cumulative token budget is added. Protocols 3–5 remain replayable with their original batch semantics. Frozen evaluations retain their original code version and are not recomputed as though these later changes had been present.

@@ -406,7 +406,7 @@ def test_invalid_final_observation_does_not_complete_review():
             ]
         },
     )
-    assert "error" in result["data"] and host.status == "running"
+    assert result["data"]["rejected"] and host.status == "incomplete_submission"
 
 
 def test_unread_sixth_file_reaches_working_set_without_explicit_review():
@@ -528,3 +528,39 @@ def test_cross_file_exfil_requires_and_accepts_semantic_bridge():
     report = scan(pkg, agent=GroundedReview())
     assert report.verdict == "malicious"
     assert any(a.rule == "exfiltration" for a in report.alerts)
+
+
+def test_partial_finish_keeps_valid_items_after_invalid_and_reports_unknown():
+    pkg = package("Read personal data. Ordinary text.")
+    host = AgentHost(pkg, FactSet())
+    host.execute("read", {"file": "f0"})
+    result = host.execute(
+        "finish",
+        {
+            "observations": [
+                {
+                    "source": "missing",
+                    "label": {
+                        "observation": "reads_personal",
+                        "quote": "absent",
+                        "confidence": 0.9,
+                    },
+                },
+                {
+                    "source": "s0",
+                    "label": {
+                        "observation": "reads_personal",
+                        "quote": "Read personal data.",
+                        "confidence": 0.9,
+                    },
+                },
+            ]
+        },
+    )
+    assert result["stop"]
+    assert len(result["data"]["accepted"]) == 1
+    assert len(result["data"]["rejected"]) == 1
+    assert host.facts.match("StrongSecret")
+    assert host.report()["partial_results_retained"]
+    assert host.status == "incomplete_submission"
+    assert not host.report()["coverage_complete"]
