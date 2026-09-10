@@ -16,8 +16,14 @@ different — and two of them cannot support the metric people usually quote.
 `scripts/fetch_wild.py` samples repositories from the MaliciousAgentSkillsBench ecosystem
 snapshot, splits them 70/30 **by repository** (so dev and held-out never share an author's
 house style), and materialises both halves — all before any content is inspected. Assignment
-is seeded, so the split is reproducible from `benchmark/wild.lock.tsv` (repo, commit, path)
-without vendoring third-party code.
+is seeded, and `benchmark/wild.lock.tsv` records the exact provenance of every sample (repo,
+commit, path), so a fresh fetch reproduces the identical split.
+
+The corpus content is checked in alongside the lockfile, so the evaluation set is stable
+across machines and does not depend on 187 upstream repositories staying reachable. Binary
+media (screenshots, demo GIFs, vendored databases) is stripped on the way in — see
+`SKIP_PATTERNS` — since the scanner reads only text and the media was two thirds of the
+bytes. Every sample keeps its upstream repo and commit in the lockfile for attribution.
 
 The rule in `CLAUDE.md` is absolute: nothing in `benchmark/wild/heldout/` is read, listed,
 grepped or scanned during development. `scripts/eval_wild.py heldout` prints aggregates only

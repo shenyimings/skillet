@@ -1,0 +1,28 @@
+<template>
+	<div class="mb-4">
+		<UiDatepicker v-model="currentValue" @change="handlerChange" />
+	</div>
+	<div class="mb-4">
+		<UiDatepicker
+			type="month"
+			v-model="currentValue"
+			@change="handlerChange"
+		/>
+	</div>
+	<div class="mb-4">
+		<UiDatepicker
+			type="year"
+			v-model="currentValue"
+			@change="handlerChange"
+		/>
+	</div>
+</template>
+<script lang="ts" setup>
+import { ref } from 'vue';
+import UiDatepicker from '@e-cloud/eslink-plus-uniapp/components/ui-datepicker/ui-datepicker.vue';
+
+const currentValue = ref('2025-05-20');
+const handlerChange = (e) => {
+	currentValue.value = e;
+};
+</script>
