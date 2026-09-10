@@ -34,6 +34,8 @@ def replay(path: Path, package: SkillPackage) -> AgentHost:
                 raise ValueError("tool replay diverged from audit")
         elif kind == "report":
             host.status = event["status"]
+        elif kind == "resume":
+            host.status = "running"
     if host.status == "running":
         host.status = "interrupted"
     return host

@@ -194,3 +194,35 @@ def test_existing_audit_refuses_before_http(tmp_path, monkeypatch):
         scan(pkg, agent=PiAgent(base_url=url, model="fake", audit_path=audit))
     assert not requests
     assert audit.read_text() == "keep me"
+
+
+def test_resume_preserves_state_and_spend_in_new_audit(tmp_path, monkeypatch):
+    from skillet.agent import AgentHost
+    from skillet.agent.static import static_facts
+
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    sample = tmp_path / "sample"
+    sample.mkdir()
+    (sample / "SKILL.md").write_text("An ordinary formatting helper.")
+    pkg = SkillPackage.load(sample)
+    host = AgentHost(pkg, static_facts(pkg))
+    host.reserve(500, "test-digest")
+    host.usage({"input": 400, "output": 80, "cacheRead": 0, "cacheWrite": 0}, "toolUse")
+    host.execute("read", {"file": "f0"})
+    host.status = "interrupted"
+    host.event("report", **host.report())
+    original = tmp_path / "original.jsonl"
+    original.write_text("\n".join(json.dumps(e) for e in host.events))
+    before = original.read_bytes()
+    audit = tmp_path / "resumed.jsonl"
+    with fake_provider([[("finish", {})]]) as (url, requests):
+        report = scan(
+            pkg, agent=PiAgent(base_url=url, model="fake", audit_path=audit, resume_from=original)
+        )
+    assert len(requests) == 1
+    assert report.analysis["calls"] == 2
+    assert report.analysis["accounted_tokens"] == 960
+    assert report.analysis["coverage_complete"]
+    assert original.read_bytes() == before
+    recovered = replay(audit, pkg)
+    assert recovered.report() == report.analysis

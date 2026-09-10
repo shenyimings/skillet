@@ -177,8 +177,12 @@ class SnapshotTools:
             "next": start + len(fragment) if start + len(fragment) < len(text) else None,
         }
 
-    def _anchor(self, source: str, quote: str, offset: int) -> Span:
+    def _anchor(self, source: str, quote: str, offset: int | None = None) -> Span:
         fid, start, text = self.reads[source]
+        if offset is None:
+            offset = text.find(quote)
+            if offset < 0 or text.find(quote, offset + 1) >= 0:
+                raise ValueError("quote must occur exactly once, or supply its character offset")
         if type(offset) is not int or offset < 0 or not quote:
             raise ValueError("quote and nonnegative character offset required")
         if text[offset : offset + len(quote)] != quote:
@@ -188,7 +192,7 @@ class SnapshotTools:
         line = (file.text or "").encode()[:byte_start].count(b"\n") + 1
         return Span(file.path, byte_start, byte_start + len(quote.encode()), line)
 
-    def _observe(self, source: str, offset: int, label: dict) -> dict:
+    def _observe(self, source: str, label: dict, offset: int | None = None) -> dict:
         item = Label.model_validate(label)
         span = self._anchor(source, item.quote, offset)
         if self.added >= self.budget.max_facts:
@@ -214,8 +218,8 @@ class SnapshotTools:
         confirmed: bool,
         source: str,
         quote: str,
-        offset: int,
         reason: str,
+        offset: int | None = None,
     ) -> dict:
         if (
             type(confirmed) is not bool

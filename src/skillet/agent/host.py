@@ -14,12 +14,13 @@ from dataclasses import asdict, dataclass
 
 from ..facts.model import FactSet
 from ..facts.package import SkillPackage
+from .state import working_set
 from .tools import SnapshotTools
 
 
 @dataclass(frozen=True)
 class Budget:
-    max_calls: int = 6
+    max_calls: int = 20
     max_total_tokens: int = 24000
     max_output_tokens: int = 768
     max_context_bytes: int = 12000
@@ -132,6 +133,9 @@ class AgentHost(SnapshotTools):
         return {"stop": self.status != "running"}
 
     def context(self) -> dict:
+        covered = self.report()["coverage"]
+        all_read = all(c["read_bytes"] == c["total_bytes"] for c in covered.values())
+        pending_edges = sum(pair not in self.decisions for pair in self.candidates())
         return {
             "files": len(self.files),
             "static_and_admitted_facts": len(self.facts),
@@ -142,10 +146,14 @@ class AgentHost(SnapshotTools):
             "latest_records": list(self.records)[-6:],
             "read_handles": len(self.reads),
             "reviewed_edges": len(self.decisions),
+            "admitted_observations_and_edges": self.added,
+            "pending_edge_count": pending_edges,
+            "next_action": "finish" if all_read and not pending_edges and self.added else "review",
             "unread_files": sum(
                 not any(r[0] == fid for r in self.reads.values()) for fid in self.files
             ),
             "status": self.status,
+            "working_set": working_set(self),
         }
 
     def execute(self, action: str, args: dict) -> dict:

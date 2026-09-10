@@ -55,7 +55,7 @@ PI_DIR=$(python -c 'from skillet.agent.runtime import BRIDGE; print(BRIDGE.paren
 npm ci --prefix "$PI_DIR" --ignore-scripts
 skillet scan path/to/skill --plan           # no model calls
 skillet scan path/to/skill                  # static only
-skillet scan path/to/skill --agent --max-calls 6 --max-tokens 24000
+skillet scan path/to/skill --agent --max-calls 20 --max-tokens 24000
 ```
 
 The last command intentionally calls the configured DeepSeek-compatible API. Export

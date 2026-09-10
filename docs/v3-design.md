@@ -37,6 +37,7 @@ or LLM-based compaction are used. RLM alone is not a state-management scheme.
 | Candidate edge frontier | Recomputed from source/sink facts, suggestions capped at 128 | Requested pages |
 | Confirmed/rejected edges | Host decisions and fact predicates | Requested facts/gaps |
 | Read progress | Host source handles and merged byte ranges | Counts and requested handles |
+| Working set | Deterministic host projection, capped near 3.6KB: read IDs, gap IDs, recent evidence and pending edges | Every request; only explicitly read source enters it |
 | Scratchpad | Host, maximum 1,000 UTF-8 bytes | Every request; treated as untrusted notes |
 | Full tool outputs | Host `rN` records | Latest bounded result or explicit paged recall |
 | Usage and events | Append-only JSONL, flushed and fsynced after every event | Remaining budget only |
@@ -44,21 +45,28 @@ or LLM-based compaction are used. RLM alone is not a state-management scheme.
 
 Old tool-call/result pairs are evicted together. A long recent result is replaced with
 a bounded excerpt and record ID; `recall` pages the serialized result. No hidden
-model-generated summary becomes the source of truth. Notes cannot create facts or
+model-generated summary becomes the source of truth. Under budget pressure, resolved
+history and working-set detail are dropped before dispatch. Fresh source tool results
+are retained until their first model delivery. Resumed runs use a shorter continuation
+prompt so a full setup prompt does not crowd out the final review step. Notes cannot create facts or
 resolve edges by themselves. Malicious sample instructions remain untrusted in all stores.
 
 The log is exclusively created **before** model dispatch; prior results are not overwritten.
 Each request's reservation is durably recorded before HTTP. Missing usage is charged at
 the reservation and stops the run. Offline `agent.replay.replay(path, snapshot)` restores
 tool effects, read handles, notes and usage, and rejects changed source snapshots.
-Replay makes **no network calls**. Automatic crash-resume with further paid requests is
-intentionally not implemented: inspect/replay the interrupted state first.
+Replay makes **no network calls**. Resumption requires an explicit `PiAgent(resume_from=old_audit, audit_path=new_audit,
+budget=original_budget)` invocation. It copies the prior trace into a new exclusively
+created audit, restores state, and preserves cumulative call/token/read/admission counters.
+It never restarts automatically after an error. Each resumed subprocess has its own wall
+clock timeout; cumulative paid-work budgets stay unchanged. Uncertain pending requests
+are charged at their original reservation before resumption.
 
 ## Budgets
 
 | Per-skill limit | Default |
 |---|---:|
-| Model requests | 6 |
+| Model requests | 20 |
 | Cumulative accounted tokens | 24,000 |
 | Single context including output reservation | 16,000 tokens maximum |
 | Serialized request body | 12,000 UTF-8 bytes maximum |
@@ -119,3 +127,16 @@ explicit **shared** budget; per-skill limits must not silently multiply across a
   read limits, partial results, static flow and symlink escape prevention.
 - No real model accuracy/PRF or live cost improvement is claimed by these tests. Held-out
   material remains sealed. Existing evaluation artifacts and credentials are preserved.
+
+## Live synthetic validation (2026-09-10)
+
+A three-file, 493-byte inert fixture was reviewed with DeepSeek v4 flash, thinking off.
+The first attempt exposed state loss: 6 requests / 9,025 tokens, no admissions, stopped
+at the call cap. The working set now retains source handles/gap IDs/frontier automatically;
+unique quotes are located by the host rather than requiring model-counted offsets.
+
+The repaired review admitted 3 observations and 4 edges, then needed budget-aware
+continuation to finish. Its cumulative result was 5 requests / 10,199 tokens, status
+`completed`, with identical facts on offline replay. Including the failed attempt, the
+validation used 19,224 tokens. This is a debugging example with preserved checkpoints,
+not a clean uninterrupted performance benchmark or a PRF evaluation.
