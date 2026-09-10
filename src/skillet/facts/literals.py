@@ -172,9 +172,9 @@ def shannon_entropy(s: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def extract(package: SkillPackage) -> Iterator[Fact]:
+def extract(package: SkillPackage, *, behavioral_env: bool = False) -> Iterator[Fact]:
     for f in package.scannable():
-        yield from _scan_file(f)
+        yield from _scan_file(f, behavioral_env=behavioral_env)
 
 
 def _classify_path(target: str) -> tuple[Resource, str] | None:
@@ -185,7 +185,7 @@ def _classify_path(target: str) -> tuple[Resource, str] | None:
     return None
 
 
-def _scan_file(f: SkillFile) -> Iterator[Fact]:
+def _scan_file(f: SkillFile, *, behavioral_env: bool = False) -> Iterator[Fact]:
     assert f.text is not None
     norm = f.norm
     text = norm.text
@@ -244,10 +244,16 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
                 yield at(Pred.STRONG_SECRET, f.path, m=m)
 
     seen_env: set[str] = set()
+    first_access = None
     for m in _ENV_CANDIDATE.finditer(text):
         key = m.group(0)
         if key in seen_env or not any(p in _ENV_WORDS for p in key.split("_")):
             continue
+        # V3 requires access syntax. A glossary or list of configuration names is
+        # a semantic review candidate, not evidence that environment values were read.
+        if behavioral_env and not _env_access(text, m):
+            continue
+        first_access = first_access or m
         seen_env.add(key)
         conf = 1.0 if "_" in key else 0.5
         yield sec(at(Pred.READ, f.path, str(Resource.SECRET), m=m, conf=conf))
@@ -255,7 +261,11 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
     # a strong secret; reading one named key is not.
     harvest = _ENV_HARVEST.search(text)
     if harvest is not None or len(seen_env) >= 3:
-        yield at(Pred.STRONG_SECRET, f.path, m=harvest or _first_env(text))
+        yield at(
+            Pred.STRONG_SECRET,
+            f.path,
+            m=harvest or (first_access if behavioral_env else _first_env(text)),
+        )
 
     # Network capability, by direction.
     for table, direction in (
@@ -331,6 +341,20 @@ def _scan_file(f: SkillFile) -> Iterator[Fact]:
         yield flag(Pred.OBFUSCATION, f.path, Obfuscation.PADDING)
     if f.oversized:
         yield flag(Pred.OBFUSCATION, f.path, Obfuscation.OVERSIZE)
+
+
+def _env_access(text: str, match: re.Match[str]) -> bool:
+    prefix = text[max(0, match.start() - 100) : match.start()]
+    # Common language-independent access forms; no bare names or assignments.
+    return bool(
+        re.search(
+            r"(?:\$\{?|\$env:|process\.env\.|"
+            r"(?:os\.environ|process\.env|ENV)\s*\[\s*['\"]|"
+            r"(?:getenv|Getenv|GetEnvironmentVariable|os\.environ\.get|env::var)"
+            r"\s*\(\s*['\"])$",
+            prefix,
+        )
+    )
 
 
 def _first_env(text: str) -> re.Match[str]:

@@ -25,10 +25,18 @@ LABELS = {
 
 
 class SnapshotTools:
-    @staticmethod
-    def _bounded_text(text: str) -> str:
+    def _bounded_text(self, text: str) -> str:
         # Keep evidence actually visible in the next model turn, including JSON escaping.
         # Oversized source results must not be counted as read and then context-truncated.
+        if self.protocol_version >= 4:
+            low, high = 0, len(text)
+            while low < high:
+                mid = (low + high + 1) // 2
+                if len(json.dumps(text[:mid], ensure_ascii=False).encode()) <= 1100:
+                    low = mid
+                else:
+                    high = mid - 1
+            return text[:low]
         while len(json.dumps(text, ensure_ascii=False).encode()) > 1100:
             text = text[: len(text) // 2]
         return text
@@ -50,13 +58,52 @@ class SnapshotTools:
                     "language": f.language_hint,
                     "text": f.scannable,
                     "truncated": f.oversized,
+                    **(self.read_state(fid) if self.protocol_version >= 4 else {}),
                 }
                 for fid, f in self.files.items()
             ],
             offset,
         )
 
-    def _read(self, file: str, start: int = 0, size: int = 1800, gap: str = "") -> dict:
+    def read_state(self, file: str) -> dict:
+        ranges = sorted(
+            (start, start + len(text.encode()))
+            for fid, start, text in self.reads.values()
+            if fid == file
+        )
+        merged = []
+        for a, b in ranges:
+            if merged and a <= merged[-1][1]:
+                merged[-1][1] = max(b, merged[-1][1])
+            else:
+                merged.append([a, b])
+        cursor = merged[0][1] if merged and merged[0][0] == 0 else 0
+        return {
+            "read_ranges": merged[:8],
+            "ranges_truncated": len(merged) > 8,
+            "next_unread": cursor if cursor < self.files[file].size else None,
+            "reviewed": file in self.reviewed,
+        }
+
+    def _review(self, file: str, reason: str) -> dict:
+        if not isinstance(reason, str) or not 1 <= len(reason) <= 300:
+            raise ValueError("review reason must have 1..300 characters")
+        if self.read_state(file)["next_unread"] is not None:
+            raise ValueError("file has unread bytes; finish may explicitly leave partial coverage")
+        self.reviewed[file] = reason
+        return {"reviewed": file, "reason": reason}
+
+    def _read(self, file: str, start: int | None = None, size: int = 1800, gap: str = "") -> dict:
+        if start is None:
+            start = self.read_state(file)["next_unread"] if self.protocol_version >= 4 else 0
+            if start is None:
+                return {
+                    "already_read": True,
+                    "file": file,
+                    "next": None,
+                    "instruction": "Review existing evidence, submit if needed, then finish. "
+                    "Use an explicit byte start only to revisit evidence.",
+                }
         f = self.files[file]
         if type(start) is not int or type(size) is not int or start < 0 or not 1 <= size <= 2400:
             raise ValueError("read uses UTF-8 byte offsets, size 1..2400")
@@ -73,7 +120,21 @@ class SnapshotTools:
         count = len(text.encode())
         if not count and start < len(raw):
             raise ValueError("window ends inside a UTF-8 character; increase size")
-        if self.read_bytes + count > self.budget.max_read_bytes:
+        if self.protocol_version >= 4:
+            for handle, existing in self.reads.items():
+                if existing == (file, start, text):
+                    return {
+                        "source": handle,
+                        "start": start,
+                        "end": start + count,
+                        "text": text,
+                        "next": start + count if start + count < len(raw) else None,
+                        "cached": True,
+                    }
+        if (
+            self.budget.max_read_bytes is not None
+            and self.read_bytes + count > self.budget.max_read_bytes
+        ):
             self.status = "budget_exhausted"
             raise ValueError("source read budget exhausted")
         self.read_bytes += count
@@ -105,6 +166,14 @@ class SnapshotTools:
 
     def _facts(self, predicate: str = "", offset: int = 0) -> dict:
         facts = self.facts.match(predicate) if predicate else list(self.facts)
+        if not predicate and self.protocol_version >= 4:
+            facts.sort(
+                key=lambda f: (
+                    f.predicate in {"File", "InFile", "NoFrontmatter", "Skill"},
+                    f.predicate,
+                    f.args,
+                )
+            )
         return self._page(
             [
                 {
@@ -151,7 +220,9 @@ class SnapshotTools:
                 "reason": "static analysis is partial; inspect only to resolve a fact or edge",
             }
             for fid, f in self.files.items()
-            if f.scannable and f.language_hint not in {"markdown", "yaml", "json", "toml"}
+            if f.scannable
+            and f.language_hint not in {"markdown", "yaml", "json", "toml"}
+            and (self.protocol_version < 4 or fid not in self.reviewed)
         ]
         gaps.extend(
             {"source": a, "target": b, "reason": "co-presence is not flow"}
@@ -195,6 +266,12 @@ class SnapshotTools:
     def _observe(self, source: str, label: dict, offset: int | None = None) -> dict:
         item = Label.model_validate(label)
         span = self._anchor(source, item.quote, offset)
+        if (
+            self.protocol_version >= 4
+            and (LABELS[item.observation][0], (locus(span), *LABELS[item.observation][1:]))
+            in self.facts
+        ):
+            return {"locus": locus(span), "accepted": True, "already_present": True}
         if self.added >= self.budget.max_facts:
             self.status = "budget_exhausted"
             raise ValueError("observation/edge budget exhausted")
@@ -230,6 +307,10 @@ class SnapshotTools:
         if len(quote) > 600:
             raise ValueError("edge quote too long")
         pair = (source_locus, target_locus)
+        if self.protocol_version >= 4 and pair in self.decisions:
+            if self.decisions[pair] != confirmed:
+                raise ValueError("edge already decided with a different value")
+            return {"accepted": True, "already_decided": True}
         # Endpoint membership does not depend on the capped candidate suggestion list.
         nodes = {f.args[0] for f in self.facts.match("InFile")}
         if source_locus not in nodes or target_locus not in nodes or pair in self.decisions:

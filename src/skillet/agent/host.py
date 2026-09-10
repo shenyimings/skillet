@@ -25,14 +25,14 @@ class Budget:
     max_output_tokens: int = 768
     max_context_bytes: int = 12000
     max_context_tokens: int = 16000
-    max_tool_calls: int = 32
-    max_read_bytes: int = 16000
+    max_tool_calls: int = 80
+    max_read_bytes: int | None = None
     max_facts: int = 64
     timeout_seconds: int = 120
 
     def __post_init__(self) -> None:
         for key, val in asdict(self).items():
-            if key == "max_total_tokens" and val is None:
+            if key in {"max_total_tokens", "max_read_bytes"} and val is None:
                 continue
             if type(val) is not int or val <= 0:
                 raise ValueError(f"{key} must be a positive integer")
@@ -47,8 +47,11 @@ class AgentHost(SnapshotTools):
         facts: FactSet,
         budget: Budget | None = None,
         event_sink: Callable[[dict], None] | None = None,
+        protocol_version: int = 4,
     ):
         budget = budget or Budget()
+        self.protocol_version = protocol_version
+        self.reviewed: dict[str, str] = {}
         self.package, self.facts, self.budget = package, facts, budget
         self.files = {f"f{i}": f for i, f in enumerate(package.files)}
         self.reads: dict[str, tuple[str, int, str]] = {}
@@ -63,7 +66,7 @@ class AgentHost(SnapshotTools):
         self.decisions: dict[tuple[str, str], bool] = {}
         self.event(
             "snapshot",
-            schema_version=3,
+            schema_version=protocol_version,
             skill=package.name,
             files=[
                 {
@@ -152,14 +155,18 @@ class AgentHost(SnapshotTools):
                 if self.budget.max_total_tokens is None
                 else self.budget.max_total_tokens - self.tokens
             ),
-            "remaining_read_bytes": self.budget.max_read_bytes - self.read_bytes,
+            "remaining_read_bytes": (
+                None
+                if self.budget.max_read_bytes is None
+                else self.budget.max_read_bytes - self.read_bytes
+            ),
             "notes": self.notes,
             "latest_records": list(self.records)[-6:],
             "read_handles": len(self.reads),
             "reviewed_edges": len(self.decisions),
             "admitted_observations_and_edges": self.added,
             "pending_edge_count": pending_edges,
-            "next_action": "finish" if all_read and not pending_edges and self.added else "review",
+            "next_action": "finish" if all_read and not pending_edges else "review",
             "unread_files": sum(
                 not any(r[0] == fid for r in self.reads.values()) for fid in self.files
             ),
@@ -183,6 +190,7 @@ class AgentHost(SnapshotTools):
                 "facts",
                 "gaps",
                 "remember",
+                "review",
                 "recall",
                 "observe",
                 "edge",

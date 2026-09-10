@@ -47,8 +47,8 @@ def fake_provider(turns, *, error=None):
                     "id": f"call_{index}_{i}",
                     "type": "function",
                     "function": {
-                        "name": "inspect",
-                        "arguments": json.dumps({"action": action, "args": args}),
+                        "name": action,
+                        "arguments": json.dumps(args),
                     },
                 }
                 for i, (action, args) in enumerate(actions)
@@ -226,3 +226,35 @@ def test_resume_preserves_state_and_spend_in_new_audit(tmp_path, monkeypatch):
     assert original.read_bytes() == before
     recovered = replay(audit, pkg)
     assert recovered.report() == report.analysis
+
+
+def test_typed_schema_rejects_unknown_label_before_host_admission(tmp_path, monkeypatch):
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    (tmp_path / "SKILL.md").write_text("A plain configuration helper.")
+    audit = tmp_path / "audit.jsonl"
+    turns = [
+        [("read", {"file": "f0"})],
+        [
+            (
+                "observe",
+                {
+                    "source": "s0",
+                    "label": {
+                        "observation": "reads_agent_state",
+                        "quote": "configuration",
+                        "confidence": 0.9,
+                    },
+                },
+            )
+        ],
+        [("finish", {})],
+    ]
+    with fake_provider(turns) as (url, requests):
+        report = scan(
+            SkillPackage.load(tmp_path), agent=PiAgent(base_url=url, model="fake", audit_path=audit)
+        )
+    assert len(requests) == 3
+    assert report.analysis["observations_and_edges"] == 0
+    assert report.verdict == "benign"
+    events = [json.loads(line) for line in audit.read_text().splitlines()]
+    assert not any(e["kind"] == "tool_request" and e["action"] == "observe" for e in events)

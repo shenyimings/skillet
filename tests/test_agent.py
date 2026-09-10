@@ -277,3 +277,86 @@ def test_disabled_total_token_limit_still_accounts_usage_and_limits_calls():
     assert host.status == "running"
     with pytest.raises(ValueError):
         host.reserve(1000, "test")
+
+
+def test_clean_review_advances_without_findings_and_caches_explicit_reread():
+    host = AgentHost(package("ordinary helper\n" * 160), FactSet())
+    first = host.execute("read", {"file": "f0"})["data"]
+    charged = host.read_bytes
+    repeated = host.execute("read", {"file": "f0", "start": 0})["data"]
+    assert repeated["cached"] and repeated["source"] == first["source"]
+    assert host.read_bytes == charged
+    second = host.execute("read", {"file": "f0"})["data"]
+    assert second["start"] == first["end"]
+    while host.read_state("f0")["next_unread"] is not None:
+        host.execute("read", {"file": "f0"})
+    assert host.context()["next_action"] == "finish"
+    assert host.added == 0
+    assert host.execute("read", {"file": "f0"})["data"]["already_read"]
+    host.execute("finish", {})
+    assert host.report()["coverage_complete"]
+
+
+def test_read_quota_is_independent_of_context_window():
+    host = AgentHost(package("a" * 20000), FactSet())
+    while host.read_state("f0")["next_unread"] is not None:
+        host.execute("read", {"file": "f0"})
+    assert host.read_bytes == 20000 and host.status == "running"
+    assert host.budget.max_context_tokens == 16000
+    assert host.context()["remaining_read_bytes"] is None
+
+
+def test_review_closes_code_gap_only_after_full_read():
+    host = AgentHost(package("x = 1\n", "main.py"), FactSet())
+    assert (
+        "error" in host.execute("review", {"file": "f0", "reason": "ordinary assignment"})["data"]
+    )
+    host.execute("read", {"file": "f0", "gap": "code:f0"})
+    assert host.execute("gaps", {})["data"]["items"]
+    host.execute("review", {"file": "f0", "reason": "ordinary assignment"})
+    assert not host.execute("gaps", {})["data"]["items"]
+    assert host.context()["working_set"]["files"][0]["reviewed"]
+
+
+def test_repeated_observation_is_idempotent():
+    host = AgentHost(package("Hide the change."), FactSet())
+    host.execute("read", {"file": "f0"})
+    args = {
+        "source": "s0",
+        "label": {"observation": "asks_to_conceal", "quote": "Hide the change.", "confidence": 0.9},
+    }
+    host.execute("observe", args)
+    assert host.execute("observe", args)["data"]["already_present"]
+    assert host.added == 1
+
+
+def test_env_glossary_is_not_a_secret_read_but_actual_access_is():
+    text = (
+        "JWT authentication: API_KEY, SECRET_TOKEN, DATABASE_PASSWORD.\nsendmail user@example.org"
+    )
+    facts = static_facts(package(text))
+    assert not facts.match("Read") and not facts.match("StrongSecret")
+    assert static_facts(package(text), legacy=True).match("StrongSecret")
+    for code in [
+        'os.getenv("API_KEY"); os.getenv("SECRET_TOKEN"); os.getenv("DATABASE_PASSWORD")',
+        "process.env.API_KEY; process.env.SECRET_TOKEN; process.env.DATABASE_PASSWORD",
+        'echo "$API_KEY ${SECRET_TOKEN} $DATABASE_PASSWORD"',
+        "dict(os.environ)",
+    ]:
+        assert static_facts(package(code)).match("StrongSecret"), code
+    single = static_facts(package('os.getenv("API_KEY")'))
+    assert single.match("Read") and not single.match("StrongSecret")
+
+
+def test_old_audit_replays_original_read_and_static_semantics(tmp_path):
+    pkg = package("JWT API_KEY SECRET_TOKEN DATABASE_PASSWORD " * 40)
+    host = AgentHost(pkg, static_facts(pkg, legacy=True), protocol_version=3)
+    host.execute("read", {"file": "f0"})
+    host.execute("read", {"file": "f0"})  # Old default restarted at zero.
+    host.execute("finish", {})
+    audit = tmp_path / "legacy.jsonl"
+    audit.write_text("\n".join(json.dumps(e) for e in host.events))
+    restored = replay(audit, pkg)
+    assert restored.reads == host.reads and restored.read_bytes == host.read_bytes
+    assert restored.facts.keys() == host.facts.keys()
+    assert restored.report() == host.report()

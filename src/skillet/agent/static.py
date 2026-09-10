@@ -33,9 +33,9 @@ def locus(span: Span) -> str:
     return f"{span.file}@{span.start}:{span.end}"
 
 
-def static_facts(package: SkillPackage) -> FactSet:
+def static_facts(package: SkillPackage, *, legacy: bool = False) -> FactSet:
     """Split legacy file-wide primitives into anchored events, then add AST flow."""
-    result = extract(package)
+    result = extract(package, behavioral_env=not legacy)
     out = FactSet()
     for fact in result:
         for evidence in result.evidence(fact):

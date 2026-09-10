@@ -17,13 +17,15 @@ def working_set(host) -> dict:
             return False
         return True
 
-    for fid, file in list(host.files.items())[:5]:
+    files = sorted(host.files.items(), key=lambda item: item[0] in host.reviewed)
+    for fid, file in files[:5]:
         handles = [
             {"source": h, "start": start, "end": start + len(text.encode())}
             for h, (f, start, text) in host.reads.items()
             if f == fid
         ]
         row = {"id": fid, "path": file.path[:120], "bytes": file.size, "read_sources": handles[-2:]}
+        row.update(host.read_state(fid))
         if file.language_hint not in {"markdown", "yaml", "json", "toml"}:
             row["required_gap"] = f"code:{fid}"
         append("files", row)

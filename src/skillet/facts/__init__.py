@@ -46,13 +46,19 @@ DEFAULT_TIERS = frozenset({Tier.AGNOSTIC, Tier.LANGUAGE})
 def extract(
     package: SkillPackage,
     tiers: Iterable[Tier] = DEFAULT_TIERS,
+    *,
+    behavioral_env: bool = False,
 ) -> FactSet:
     """Run every registered extractor whose tier is enabled, into one `FactSet`."""
     enabled = frozenset(tiers)
     facts = FactSet()
-    for _, tier, extractor in REGISTRY:
+    for name, tier, extractor in REGISTRY:
         if tier in enabled:
-            facts.extend(extractor(package))
+            facts.extend(
+                literals.extract(package, behavioral_env=True)
+                if name == "literals" and behavioral_env
+                else extractor(package)
+            )
     return facts
 
 

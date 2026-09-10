@@ -71,8 +71,8 @@ are charged at their original reservation before resumption.
 | Single context including output reservation | 16,000 tokens maximum |
 | Serialized request body | 12,000 UTF-8 bytes maximum |
 | Maximum completion tokens per request | 768 |
-| Tool invocations | 32 |
-| Source bytes returned, counting rereads | 16,000 |
+| Tool invocations | 80 (independent of the 20 model-request cap) |
+| Cumulative source bytes | No default limit; optional explicit cap |
 | Requested source window (shrunk to fit visible tool context) | 2,400 bytes |
 | Admitted observations plus edge decisions | 64 |
 | Wall clock for Pi subprocess | 120 seconds |
@@ -106,8 +106,8 @@ dataflow is unconfirmed. `datalog.py` remains the deterministic rule/provenance 
 `chunk.py` remains only for explicit legacy replay/comparison. The default scan does not
 call it, and passing the old `client=` requires `legacy=True`. Legacy tests keep their
 historical behavior; the live CLI `--llm` is now an alias for `--agent`. Unbounded
-`bench --detector engine-llm` has been removed. Batch agent evaluation needs a future
-explicit **shared** budget; per-skill limits must not silently multiply across a dataset.
+`bench --detector engine-llm` has been removed. Batch evaluations use an explicitly frozen sample list, preserve per-case audit/usage,
+and do not impose a cumulative token budget by default.
 
 ## Limits and validation scope
 
@@ -141,3 +141,19 @@ continuation to finish. Its cumulative result was 5 requests / 10,199 tokens, st
 `completed`, with identical facts on offline replay. Including the failed attempt, the
 validation used 19,224 tokens. This is a debugging example with preserved checkpoints,
 not a clean uninterrupted performance benchmark or a PRF evaluation.
+
+## Review-state repair (audit schema 4)
+
+Reads without a start continue at the first unread byte. Merged ranges and next cursors
+are host-owned; identical explicit windows reuse their source handle without charging
+source bytes again. A fully read file may be marked reviewed with a reason, including a
+negative review, which closes its generic code gap. `finish` concludes review of material
+read and remains valid with zero admissions; unread bytes still yield partial coverage.
+Duplicate observations and identical edge decisions are idempotent. Conflicting decisions
+are rejected. Tools expose separate typed schemas with closed observation labels.
+
+V3 environment-variable facts require access syntax or a broad environment harvest;
+merely listing several credential-like names no longer implies StrongSecret. Resource
+path and network lexical fallbacks remain imperfect and may still match examples.
+Audit replay selects the recorded version, preserving schema-3 extraction/read semantics.
+The original results remain separate from subsequent evaluations.
