@@ -360,3 +360,46 @@ def test_old_audit_replays_original_read_and_static_semantics(tmp_path):
     assert restored.reads == host.reads and restored.read_bytes == host.read_bytes
     assert restored.facts.keys() == host.facts.keys()
     assert restored.report() == host.report()
+
+
+def test_final_submission_can_admit_last_source_observation():
+    host = AgentHost(package("Hide the change."), FactSet())
+    host.execute("read", {"file": "f0"})
+    assert host.context()["next_action"] == "finish"
+    result = host.execute(
+        "finish",
+        {
+            "observations": [
+                {
+                    "source": "s0",
+                    "label": {
+                        "observation": "asks_to_conceal",
+                        "quote": "Hide the change.",
+                        "confidence": 0.9,
+                    },
+                }
+            ]
+        },
+    )
+    assert result["data"]["finished"] and host.facts.match("Claim")
+
+
+def test_invalid_final_observation_does_not_complete_review():
+    host = AgentHost(package("A helper."), FactSet())
+    host.execute("read", {"file": "f0"})
+    result = host.execute(
+        "finish",
+        {
+            "observations": [
+                {
+                    "source": "s0",
+                    "label": {
+                        "observation": "asks_to_conceal",
+                        "quote": "fabricated",
+                        "confidence": 0.9,
+                    },
+                }
+            ]
+        },
+    )
+    assert "error" in result["data"] and host.status == "running"

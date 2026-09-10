@@ -157,3 +157,11 @@ merely listing several credential-like names no longer implies StrongSecret. Res
 path and network lexical fallbacks remain imperfect and may still match examples.
 Audit replay selects the recorded version, preserving schema-3 extraction/read semantics.
 The original results remain separate from subsequent evaluations.
+
+At a resolved read/edge frontier, the runtime starts a fresh final-review context. Latest
+source/tool results remain as explicitly untrusted data; obsolete assistant tool calls are
+removed. The provider is asked for a structured `finish` submission, which can include
+up to six remaining observations and six edges. Empty findings are valid. Invalid evidence
+does not complete the review. File schemas enumerate snapshot IDs for small packages.
+Calling a tool outside the advertised phase stops with `protocol_error`, without granting
+coverage completion. Dispatch audits record offered tools, phase and tool choice.

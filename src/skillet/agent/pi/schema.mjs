@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 const string = (maxLength = 120) => Type.String({ minLength: 1, maxLength });
 const optional = Type.Optional;
+const fileId = () => Type.String({ pattern: "^f[0-9]+$", description: "Snapshot ID such as f0; never a path." });
 const integer = (maximum) => Type.Integer({ minimum: 0, ...(maximum == null ? {} : { maximum }) });
 const object = fields => Type.Object(fields, { additionalProperties: false });
 const page = { offset: optional(integer()) };
@@ -12,13 +13,13 @@ const labels = ["reads_sensitive", "reads_personal", "sends_outward", "fetches_r
 export const actions = {
   files: object(page), facts: object({ ...page, predicate: optional(string()) }),
   gaps: object(page),
-  read: object({ file: string(), start: optional(integer()),
+  read: object({ file: fileId(), start: optional(integer()),
     size: optional(Type.Integer({ minimum: 1, maximum: 2400 })), gap: optional(string()) }),
-  search: object({ file: string(), text: string(), start: optional(integer()), gap: optional(string()) }),
+  search: object({ file: fileId(), text: string(), start: optional(integer()), gap: optional(string()) }),
   remember: object({ text: Type.String({ maxLength: 1000 }) }),
   recall: object({ record: string(), start: optional(integer()),
     size: optional(Type.Integer({ minimum: 1, maximum: 1000 })) }),
-  review: object({ file: string(), reason: string(300) }),
+  review: object({ file: fileId(), reason: string(300) }),
   observe: object({ ...anchor, label: object({
     observation: Type.Union(labels.map(value => Type.Literal(value))),
     quote: string(600), confidence: Type.Number({ minimum: 0, maximum: 1 }),
@@ -29,3 +30,9 @@ export const actions = {
   finish: object({}),
 };
 // Retain the audit's action/args RPC shape; exposed functions have typed parameters.
+
+actions.finish = object({
+  observations: optional(Type.Array(actions.observe, { maxItems: 6 })),
+  edges: optional(Type.Array(actions.edge, { maxItems: 6 })),
+  reason: optional(string(300)),
+});

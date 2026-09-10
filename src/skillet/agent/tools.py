@@ -349,6 +349,21 @@ class SnapshotTools:
         )
         return {"accepted": True}
 
-    def _finish(self) -> dict:
+    def _finish(
+        self, observations: list | None = None, edges: list | None = None, reason: str = ""
+    ) -> dict:
+        if (
+            not isinstance(reason, str)
+            or len(reason) > 300
+            or any(
+                not isinstance(items, list) or len(items) > 6
+                for items in (observations or [], edges or [])
+            )
+        ):
+            raise ValueError("finish allows up to 6 observations/edges and a 300-character reason")
+        for item in observations or []:
+            self._observe(**item)
+        for item in edges or []:
+            self._edge(**item)
         self.status = "completed"
         return {"finished": True, "coverage_complete": self.report()["coverage_complete"]}
