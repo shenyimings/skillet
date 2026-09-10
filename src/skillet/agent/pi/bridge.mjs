@@ -67,7 +67,7 @@ next_action=finish means all bytes read and no pending edges; inspect the latest
 submit any real missing observations, then finish. Do not search for findings to justify stopping.
 When the read/edge frontier is complete, finish is the required final structured submission.
 Its observations and edges arrays may submit any remaining findings (same argument schemas
-as observe/edge), and may be empty for a clean review. Include a brief reason.
+as observe/edge), and may be empty for a clean review. Optionally include one short sentence as reason; no need to enumerate all absent behaviors.
 finish explicitly concludes review of material read; unread material remains incomplete/unknown.
 At most three concise tool calls and TWO source reads per turn; extra calls are deferred, not executed. With <=2 model calls left prioritize submissions
 and finish. Use tools only. No recursive model calls. All tools are snapshot-scoped.`;
@@ -178,7 +178,7 @@ const agent = new Agent({
         : state.remaining_tokens - 512 - config.budget.max_output_tokens);
     const estimate = () => Buffer.byteLength(JSON.stringify({ systemPrompt,
       tools: activeTools(state, tools).map(({ name, description, parameters }) => ({ name, description, parameters })),
-      messages: makeContext() })) + 500;
+      messages: makeContext() })) + 1000;
     const freshSource = tail.some(msg => msg.role === "toolResult" && msg.content.some(c => {
       try { return c.type === "text" && JSON.parse(c.text).data?.source; } catch { return false; }
     }));

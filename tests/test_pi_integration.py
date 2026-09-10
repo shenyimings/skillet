@@ -389,3 +389,28 @@ def test_excess_source_read_is_deferred_without_false_coverage(tmp_path, monkeyp
         )
         == 1
     )
+
+
+def test_final_summary_does_not_block_valid_empty_findings(tmp_path, monkeypatch):
+    monkeypatch.setenv("SKILLET_LLM_API_KEY", "test-key-not-live")
+    (tmp_path / "SKILL.md").write_text("An ordinary helper.")
+    turns = [
+        [("read", {"file": "f0"})],
+        [
+            (
+                "finish",
+                {
+                    "observations": [],
+                    "edges": [],
+                    "reason": "Reviewed ordinary documented behavior. " * 12,
+                },
+            )
+        ],
+    ]
+    with fake_provider(turns) as (url, requests):
+        report = scan(
+            SkillPackage.load(tmp_path),
+            agent=PiAgent(base_url=url, model="fake", audit_path=tmp_path / "audit.jsonl"),
+        )
+    assert report.verdict == "benign" and report.analysis["coverage_complete"]
+    assert len(requests) == 2

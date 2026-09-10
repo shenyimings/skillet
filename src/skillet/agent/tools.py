@@ -354,13 +354,13 @@ class SnapshotTools:
     ) -> dict:
         if (
             not isinstance(reason, str)
-            or len(reason) > 300
+            or len(reason) > 1000
             or any(
                 not isinstance(items, list) or len(items) > 6
                 for items in (observations or [], edges or [])
             )
         ):
-            raise ValueError("finish allows up to 6 observations/edges and a 300-character reason")
+            raise ValueError("finish allows up to 6 observations/edges and a 1000-character reason")
         for item in observations or []:
             self._observe(**item)
         for item in edges or []:

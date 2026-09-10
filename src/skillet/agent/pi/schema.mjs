@@ -34,5 +34,5 @@ export const actions = {
 actions.finish = object({
   observations: optional(Type.Array(actions.observe, { maxItems: 6 })),
   edges: optional(Type.Array(actions.edge, { maxItems: 6 })),
-  reason: optional(string(300)),
+  reason: optional(string(1000)),
 });

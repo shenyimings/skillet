@@ -177,3 +177,8 @@ The bridge executes at most three tools and two source reads per model turn. Ext
 return an explicit deferral without reading or recording coverage; the agent must request
 that work on a later turn. This controls per-request result size, not cumulative tokens.
 A rejected model dispatch records its byte/reservation counts for diagnosis.
+
+The approximate context estimator reserves 1KB for provider serialization overhead; the
+actual serialized payload still passes the hard host gate before HTTP. Final-review prose
+may use up to 1000 characters (it cannot create facts), while observation quotes/details
+and edge evidence retain their tighter schemas.
