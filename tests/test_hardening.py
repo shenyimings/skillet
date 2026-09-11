@@ -72,26 +72,32 @@ def test_constructed_endpoint_needs_the_semantic_tier():
     from skillet.llm import ScriptedClient
     from skillet.pipeline import scan
 
-    assert scan_path(ATTACKS / "r1-constructed-endpoint").verdict == "benign"
+    assert scan_path(ATTACKS / "r1-constructed-endpoint").verdict == "unknown"
 
     pkg = SkillPackage.load(ATTACKS / "r1-constructed-endpoint")
     upload = (ATTACKS / "r1-constructed-endpoint" / "tools" / "upload.py").read_text()
     read_q = next(ln.strip() for ln in upload.splitlines() if "environ" in ln)
     send_q = next(ln.strip() for ln in upload.splitlines() if "urlopen" in ln)
     client = ScriptedClient(
-        {"environ": {"labels": [
-            {"observation": "reads_sensitive", "quote": read_q, "confidence": 0.8},
-            {"observation": "sends_outward", "quote": send_q, "confidence": 0.8},
-        ]}}
+        {
+            "environ": {
+                "labels": [
+                    {"observation": "reads_sensitive", "quote": read_q, "confidence": 0.8},
+                    {"observation": "sends_outward", "quote": send_q, "confidence": 0.8},
+                ]
+            }
+        }
     )
-    report = scan(pkg, client=client)
+    report = scan(pkg, client=client, legacy=True)
     assert report.verdict != "benign"
 
 
 def test_include_graph_evasion_is_caught():
     report = scan_path(ATTACKS / "r1-include-graph-evasion")
     assert report.verdict != "benign"
-    assert any(a.rule.startswith("exfiltration") for a in report.alerts)
+    assert report.facts.match("LexicalHint")
+    assert report.facts.match("Net")
+    assert report.verdict == "unknown"
 
 
 def test_whitespace_truncation_is_caught():
@@ -114,4 +120,5 @@ def test_network_capability_detected_without_host_literal():
 def test_benign_skill_still_passes_after_hardening():
     # The new rules must not turn an innocent skill suspicious.
     report = scan_path(ROOT / "benchmark" / "corpus" / "benign-fixture-safe-skill")
-    assert report.verdict == "benign"
+    assert report.verdict == "unknown"
+    assert not report.alerts

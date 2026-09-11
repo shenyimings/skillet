@@ -8,6 +8,7 @@ all. Extensions are recorded as a hint for later layers, never used as a gate.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -104,15 +105,39 @@ class SkillPackage:
     name: str
     root: Path
     files: list[SkillFile] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, root: Path | str, name: str | None = None) -> SkillPackage:
-        root = Path(root)
+        root = Path(root).resolve()
         if not root.is_dir():
             raise NotADirectoryError(root)
         pkg = cls(name=name or root.name, root=root)
-        for path in sorted(p for p in root.rglob("*") if p.is_file()):
-            pkg.files.append(_read(path, path.relative_to(root).as_posix()))
+        total = 0
+        for directory, dirs, names in os.walk(root, followlinks=False):
+            for name in sorted(dirs):
+                if (Path(directory) / name).is_symlink():
+                    pkg.issues.append(f"symlink directory skipped: {name}")
+            dirs[:] = sorted(n for n in dirs if not (Path(directory) / n).is_symlink())
+            for name in sorted(names):
+                path = Path(directory) / name
+                rel = path.relative_to(root).as_posix()
+                if path.is_symlink() or not path.is_file():
+                    pkg.issues.append(f"non-regular file skipped: {rel}")
+                    continue
+                if len(pkg.files) >= 1000 or total >= 32 * MAX_FILE_BYTES:
+                    pkg.issues.append("package load cap reached")
+                    return pkg
+                try:
+                    file = _read(path, rel)
+                except OSError:
+                    pkg.issues.append(f"unreadable file: {rel}")
+                    continue
+                total += min(file.size, MAX_FILE_BYTES)
+                pkg.files.append(file)
+                if file.oversized or file.text is None:
+                    pkg.issues.append(f"incomplete text coverage: {rel}")
+        pkg.files.sort(key=lambda f: f.path)
         return pkg
 
     @cached_property
@@ -141,21 +166,15 @@ class SkillPackage:
         """
         base = Path(source).parent
         candidate = (base / target) if not target.startswith("/") else Path(target[1:])
-        try:
-            resolved = candidate.resolve().relative_to(Path().resolve())
-        except ValueError:
-            parts: list[str] = []
-            for part in candidate.parts:
-                if part == "..":
-                    if not parts:
-                        return None
-                    parts.pop()
-                elif part not in (".", ""):
-                    parts.append(part)
-            resolved = Path(*parts) if parts else None
-            if resolved is None:
-                return None
-        posix = resolved.as_posix()
+        parts: list[str] = []
+        for part in candidate.parts:
+            if part == "..":
+                if not parts:
+                    return None
+                parts.pop()
+            elif part not in (".", ""):
+                parts.append(part)
+        posix = "/".join(parts)
         return posix if posix in self.by_path else None
 
     def __len__(self) -> int:
@@ -164,13 +183,8 @@ class SkillPackage:
 
 def _read(path: Path, rel: str) -> SkillFile:
     size = path.stat().st_size
-    if size > MAX_FILE_BYTES:
-        # Do not skip an oversized file — read a bounded prefix so a payload padded past
-        # the cap is still partly scanned, and mark it so a rule can flag the padding.
-        with path.open("rb") as fh:
-            head = fh.read(MAX_FILE_BYTES)
-        text = head.decode("utf-8", errors="ignore") if is_probably_text(head) else None
-        return SkillFile(path=rel, size=size, text=text, oversized=True)
-    data = path.read_bytes()
+    # Always bound the actual read, even if a file grows after stat().
+    with path.open("rb") as stream:
+        data = stream.read(MAX_FILE_BYTES)
     text = data.decode("utf-8") if is_probably_text(data) else None
-    return SkillFile(path=rel, size=size, text=text)
+    return SkillFile(path=rel, size=size, text=text, oversized=size > MAX_FILE_BYTES)

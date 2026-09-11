@@ -30,13 +30,15 @@ def engine_detector(
         active = None
         if use_llm:
             if resolved["client"] is None:
-                from .llm.client import DeepSeekClient
-
-                resolved["client"] = DeepSeekClient()
+                raise ValueError(
+                    "Unbounded LLM benchmarks are disabled in v3. "
+                    "Use a bounded single-skill Pi scan; batch evaluation "
+                    "needs an explicit shared run budget."
+                )
             active = resolved["client"]
         from .facts.package import SkillPackage
 
-        report = scan(SkillPackage.load(sample.path), client=active)
+        report = scan(SkillPackage.load(sample.path), client=active, legacy=active is not None)
         return Detection(verdict=report.verdict, patterns=frozenset(report.patterns))
 
     return detect

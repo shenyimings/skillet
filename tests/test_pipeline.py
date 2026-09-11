@@ -17,8 +17,8 @@ def test_core_rules_compile_and_stratify():
     assert sum(1 for r in rules if r.head.predicate == "Alert") >= 10
 
 
-def test_static_scan_flags_same_file_exfil():
-    report = scan_path(CORPUS / "malicious-fixture-harmful-instruction")
+def test_legacy_static_scan_flags_same_file_exfil():
+    report = scan_path(CORPUS / "malicious-fixture-harmful-instruction", legacy=True)
     assert report.verdict == "malicious"
     assert "E1" in report.patterns
     # provenance is populated: the alert points at real spans.
@@ -27,9 +27,9 @@ def test_static_scan_flags_same_file_exfil():
     assert all(s.file for s in exfil.spans)
 
 
-def test_static_scan_passes_benign_skill():
+def test_static_scan_does_not_certify_unreviewed_prose():
     report = scan_path(CORPUS / "benign-fixture-safe-skill")
-    assert report.verdict == "benign"
+    assert report.verdict == "unknown"
     assert not report.alerts
 
 
@@ -66,7 +66,7 @@ def test_semantic_tier_detects_cross_layer_injection():
             },
         }
     )
-    report = scan(pkg, client=client)
+    report = scan(pkg, client=client, legacy=True)
     assert report.verdict == "malicious"
     assert any(a.rule == "injection" for a in report.alerts)
 
@@ -74,4 +74,5 @@ def test_semantic_tier_detects_cross_layer_injection():
 def test_scan_without_client_is_static_only():
     # No client, no network: still produces a verdict.
     report = scan_path(CORPUS / "benign-fixture-mcp-clean")
-    assert report.verdict in {"benign", "suspicious", "malicious"}
+    assert report.verdict == "unknown"
+    assert report.analysis["status"] == "static_only"

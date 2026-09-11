@@ -1,14 +1,7 @@
-"""End to end: a skill directory in, an audited report out.
+"""Static event extraction, optional bounded Pi review, then Datalog with provenance.
 
-This is the only module that knows the layers exist in a particular order — extract static
-facts, optionally label chunks with the LLM, run the rules, read off alerts. Everything it
-produces is traceable: an `Alert` names the rule that fired, its severity and pattern, and
-the exact source spans that support it.
-
-The semantic tier is optional. With no client, the scan runs on static facts alone — fully
-deterministic, offline, and still catches the syntactic patterns. Passing a client adds the
-natural-language chain detections. Either way the verdict is derived by the engine, never
-by the model.
+V3 is the default. Legacy chunk extraction requires explicit legacy=True and is retained
+only for reproducibility. Incomplete semantic runs never produce a benign verdict.
 """
 
 from __future__ import annotations
@@ -16,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .agent.static import static_facts
 from .dsl.parser import compile_rules
 from .engine.datalog import Result, Rule, evaluate
 from .facts import Tier, extract
@@ -25,6 +19,7 @@ from .llm.client import Completion
 from .llm.labeller import label_package
 
 _CORE_RULES = Path(__file__).parent / "rules" / "core.skl"
+_V3_RULES = Path(__file__).parent / "rules" / "v3.skl"
 
 # Verdict is the max severity of any alert; these order it.
 _SEVERITY_RANK = {"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
@@ -53,6 +48,7 @@ class ScanReport:
     alerts: list[Alert] = field(default_factory=list)
     facts: FactSet | None = None
     result: Result | None = None
+    analysis: dict = field(default_factory=dict)
 
     @property
     def patterns(self) -> set[str]:
@@ -61,7 +57,7 @@ class ScanReport:
 
 def load_rules(path: Path | None = None) -> list[Rule]:
     """Compile the rule set (the core set by default)."""
-    return compile_rules((path or _CORE_RULES).read_text())
+    return compile_rules((path or _V3_RULES).read_text())
 
 
 def scan(
@@ -69,29 +65,66 @@ def scan(
     *,
     client: Completion | None = None,
     rules: list[Rule] | None = None,
-    passes: int = 3,
+    passes: int = 1,
+    agent=None,
+    legacy: bool = False,
 ) -> ScanReport:
-    """Scan a loaded skill package. With a client, the semantic tier runs too.
+    """Scan a snapshot. Pi owns the loop; the host admits facts; rules own verdicts."""
+    if client is not None and not legacy:
+        raise ValueError("chunk labelling is retired; use agent=PiAgent(), or explicit legacy=True")
+    if agent is not None and legacy:
+        raise ValueError("Pi agent and legacy chunk mode cannot be combined")
+    if agent is not None and getattr(agent, "mode", "facts") == "pure":
+        facts = FactSet()
+        analysis = agent.run(package, facts)
+        decision = analysis.get("direct_decision") or {}
+        return ScanReport(
+            skill=package.name,
+            verdict=decision.get("verdict", "unknown"),
+            facts=facts,
+            analysis=analysis,
+        )
+    rules = rules if rules is not None else load_rules(_CORE_RULES if legacy else None)
 
-    `passes` labels each chunk several times and unions the facts, trading calls for recall
-    over the nondeterministic labeller; it only matters when `client` is set.
-    """
-    rules = rules if rules is not None else load_rules()
-
-    facts = extract(package, tiers={Tier.AGNOSTIC, Tier.LANGUAGE})
+    facts = (
+        extract(package, tiers={Tier.AGNOSTIC, Tier.LANGUAGE}) if legacy else static_facts(package)
+    )
+    analysis = {"status": "static_only", "coverage_complete": False, "load_issues": package.issues}
     if client is not None:
         facts.extend(label_package(package, client, passes=passes))
+        analysis["status"] = "legacy"
+    if agent is not None:
+        analysis = agent.run(package, facts)
 
     result = evaluate(facts, rules)
     alerts = _collect_alerts(result, rules)
     verdict = _verdict(alerts)
+    if not alerts and (
+        (
+            not legacy
+            and (
+                agent is None
+                or not analysis.get("coverage_complete")
+                or result.facts.match("ReviewNeeded")
+            )
+        )
+        or package.issues
+    ):
+        verdict = "unknown"
     return ScanReport(
-        skill=package.name, verdict=verdict, alerts=alerts, facts=facts, result=result
+        skill=package.name,
+        verdict=verdict,
+        alerts=alerts,
+        facts=facts,
+        result=result,
+        analysis=analysis,
     )
 
 
-def scan_path(path: Path | str, *, client: Completion | None = None) -> ScanReport:
-    return scan(SkillPackage.load(path), client=client)
+def scan_path(
+    path: Path | str, *, client: Completion | None = None, agent=None, legacy: bool = False
+) -> ScanReport:
+    return scan(SkillPackage.load(path), client=client, agent=agent, legacy=legacy)
 
 
 def _collect_alerts(result: Result, rules: list[Rule]) -> list[Alert]:

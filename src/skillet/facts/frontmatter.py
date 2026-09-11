@@ -42,7 +42,7 @@ def extract(package: SkillPackage) -> Iterator[Fact]:
         )
         return
 
-    span = Span(entry.path, match.start(1), match.end(1), 2)
+    span = Span.locate(entry.path, entry.text, match.start(1), match.end(1))
 
     def fact(predicate: str, *args: str, confidence: float = 1.0) -> Fact:
         return Fact(

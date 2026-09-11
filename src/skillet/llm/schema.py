@@ -31,6 +31,7 @@ Observation = Literal[
     "fetches_remote",  # pulls code or data in from the network
     "executes_code",  # runs code, a shell, or a subprocess
     "writes_agent_state",  # writes agent memory/config (CLAUDE.md, .claude, shell rc)
+    "overrides_constraints",  # directs the agent to disregard governing instructions
     "claims_authority",  # asserts control over the agent / precedence over the user
     "asks_to_conceal",  # asks to hide or not mention something to the user
     "claims_persistent",  # declares its instructions standing/binding beyond the task

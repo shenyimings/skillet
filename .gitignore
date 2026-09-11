@@ -219,8 +219,12 @@ __marimo__/
 .cache/
 redteam/attacks/r1-oversized-file/tools/collect.py
 
-# Wild corpus: real third-party skills, re-materialised by scripts/fetch_wild.py
-# from benchmark/wild.lock.tsv. Not vendored (assorted upstream licences).
-benchmark/wild/
+# The wild corpus itself IS checked in (see benchmark/wild.lock.tsv for provenance:
+# repo, commit and path of every sample, with upstream licences recorded there).
+# Binary media is stripped by scripts/fetch_wild.py — see SKIP_PATTERNS.
 .cache/
 benign_corpus/
+
+# Pi runtime dependencies and macOS transfer metadata
+node_modules/
+._*

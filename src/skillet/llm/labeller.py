@@ -41,6 +41,7 @@ _LABEL_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
     "claims_authority": (str(Pred.CLAIM), (str(Claim.AUTHORITY),)),
     "asks_to_conceal": (str(Pred.CLAIM), (str(Claim.CONCEAL),)),
     "claims_persistent": (str(Pred.CLAIM), (str(Claim.PERSIST),)),
+    "overrides_constraints": (str(Pred.CLAIM), ("override",)),
     "misrepresents": (str(Pred.CLAIM), (str(Claim.DECEIVE),)),
     "instructs_agent": (str(Pred.DIRECTIVE), ()),
 }
