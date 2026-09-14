@@ -1,7 +1,8 @@
 """Static event extraction, optional bounded Pi review, then Datalog with provenance.
 
-V3 is the default. Legacy chunk extraction requires explicit legacy=True and is retained
-only for reproducibility. Incomplete semantic runs never produce a benign verdict.
+V3 is the default. The legacy chunk-labelling client is retired; `legacy=True` keeps the
+old static extraction semantics for reproducing historical results. Incomplete semantic
+runs never produce a benign verdict.
 """
 
 from __future__ import annotations
@@ -15,8 +16,6 @@ from .engine.datalog import Result, Rule, evaluate
 from .facts import Tier, extract
 from .facts.model import FactSet, Span
 from .facts.package import SkillPackage
-from .llm.client import Completion
-from .llm.labeller import label_package
 
 _CORE_RULES = Path(__file__).parent / "rules" / "core.skl"
 _V3_RULES = Path(__file__).parent / "rules" / "v3.skl"
@@ -63,17 +62,13 @@ def load_rules(path: Path | None = None) -> list[Rule]:
 def scan(
     package: SkillPackage,
     *,
-    client: Completion | None = None,
     rules: list[Rule] | None = None,
-    passes: int = 1,
     agent=None,
     legacy: bool = False,
 ) -> ScanReport:
     """Scan a snapshot. Pi owns the loop; the host admits facts; rules own verdicts."""
-    if client is not None and not legacy:
-        raise ValueError("chunk labelling is retired; use agent=PiAgent(), or explicit legacy=True")
     if agent is not None and legacy:
-        raise ValueError("Pi agent and legacy chunk mode cannot be combined")
+        raise ValueError("Pi agent and legacy static mode cannot be combined")
     if agent is not None and getattr(agent, "mode", "facts") == "pure":
         facts = FactSet()
         analysis = agent.run(package, facts)
@@ -90,9 +85,6 @@ def scan(
         extract(package, tiers={Tier.AGNOSTIC, Tier.LANGUAGE}) if legacy else static_facts(package)
     )
     analysis = {"status": "static_only", "coverage_complete": False, "load_issues": package.issues}
-    if client is not None:
-        facts.extend(label_package(package, client, passes=passes))
-        analysis["status"] = "legacy"
     if agent is not None:
         analysis = agent.run(package, facts)
 
@@ -121,10 +113,8 @@ def scan(
     )
 
 
-def scan_path(
-    path: Path | str, *, client: Completion | None = None, agent=None, legacy: bool = False
-) -> ScanReport:
-    return scan(SkillPackage.load(path), client=client, agent=agent, legacy=legacy)
+def scan_path(path: Path | str, *, agent=None, legacy: bool = False) -> ScanReport:
+    return scan(SkillPackage.load(path), agent=agent, legacy=legacy)
 
 
 def _collect_alerts(result: Result, rules: list[Rule]) -> list[Alert]:

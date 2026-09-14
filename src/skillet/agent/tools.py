@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 
 from ..facts.model import Fact, Origin, Span
-from ..llm.schema import Label
+from .observation import Label
 from .static import locus
 
 LABELS = {

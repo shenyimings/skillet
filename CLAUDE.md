@@ -19,8 +19,8 @@ confidence**; the pure control instead emits its verdict directly. Datalog does 
 ```
 src/skillet/
   facts/      static frontmatter, includes, lexical fallback
-  agent/      Pi runtime, bounded external state/tools, Python AST event/flow extraction
-  llm/        legacy chunk labeller; explicit legacy opt-in only
+  agent/      Pi runtime, bounded external state/tools, Python AST event/flow extraction,
+              closed observation schema (agent/observation.py)
   dsl/        analyst-facing rule DSL -> Datalog compiler
   engine/     Datalog evaluation + provenance
 benchmark/
