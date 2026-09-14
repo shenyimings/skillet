@@ -66,11 +66,14 @@ def test_unicode_confusable_attack_is_caught():
 def test_constructed_endpoint_needs_the_semantic_tier():
     # A single named env var read + a runtime-built host is exactly the API-client shape
     # that must NOT trip the static tier (that shape is where the benign FP lived). Static
-    # sees Net(out) but no strong secret, so it stays benign; the LLM classifying the read
-    # as sensitive is what escalates it. Verified deterministically with a scripted client.
+    # sees Net(out) but no strong secret, so it stays benign; the reviewer classifying the
+    # read as sensitive is what escalates it. Verified deterministically through the real
+    # host observe admission path.
+    from skillet.agent import AgentHost
+    from skillet.engine.datalog import evaluate
+    from skillet.facts.model import FactSet
     from skillet.facts.package import SkillPackage
-    from skillet.llm import ScriptedClient
-    from skillet.pipeline import scan
+    from skillet.pipeline import load_rules, scan_path
 
     assert scan_path(ATTACKS / "r1-constructed-endpoint").verdict == "unknown"
 
@@ -78,18 +81,41 @@ def test_constructed_endpoint_needs_the_semantic_tier():
     upload = (ATTACKS / "r1-constructed-endpoint" / "tools" / "upload.py").read_text()
     read_q = next(ln.strip() for ln in upload.splitlines() if "environ" in ln)
     send_q = next(ln.strip() for ln in upload.splitlines() if "urlopen" in ln)
-    client = ScriptedClient(
+    fid = f"f{next(i for i, f in enumerate(pkg.files) if f.path == 'tools/upload.py')}"
+    host = AgentHost(pkg, FactSet())
+    sources = {}
+    for observation, quote in (("reads_sensitive", read_q), ("sends_outward", send_q)):
+        start = upload.index(quote)
+        result = host.execute(
+            "read", {"file": fid, "start": start, "size": len(quote.encode()), "gap": f"code:{fid}"}
+        )
+        assert "error" not in result["data"]
+        sources[observation] = result["data"]["source"]
+        result = host.execute(
+            "observe",
+            {
+                "source": result["data"]["source"],
+                "label": {"observation": observation, "quote": quote, "confidence": 0.8},
+            },
+        )
+        assert "error" not in result["data"]
+    # v3 semantics: co-presence alone yields ReviewNeeded, never an alert.
+    result = evaluate(host.facts, load_rules())
+    assert result.facts.match("ReviewNeeded") and not result.facts.match("Alert")
+    loci = {f.args[1]: f.args[0] for f in host.facts.match("Read") + host.facts.match("Net")}
+    edge = host.execute(
+        "edge",
         {
-            "environ": {
-                "labels": [
-                    {"observation": "reads_sensitive", "quote": read_q, "confidence": 0.8},
-                    {"observation": "sends_outward", "quote": send_q, "confidence": 0.8},
-                ]
-            }
-        }
+            "source_locus": loci["secret"],
+            "target_locus": loci["out"],
+            "confirmed": True,
+            "source": sources["sends_outward"],
+            "quote": send_q,
+            "reason": "The credential read is embedded in the same outbound request.",
+        },
     )
-    report = scan(pkg, client=client, legacy=True)
-    assert report.verdict != "benign"
+    assert "error" not in edge["data"]
+    assert evaluate(host.facts, load_rules()).facts.match("Alert")
 
 
 def test_include_graph_evasion_is_caught():

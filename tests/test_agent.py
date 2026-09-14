@@ -134,13 +134,6 @@ def test_symlink_does_not_read_outside_package(tmp_path):
     assert scan(pkg).verdict == "unknown"
 
 
-def test_old_chunk_client_requires_explicit_legacy():
-    from skillet.llm import ScriptedClient
-
-    with pytest.raises(ValueError, match="retired"):
-        scan(package("document"), client=ScriptedClient({}))
-
-
 def test_context_ceiling_includes_output_reservation():
     host = AgentHost(
         package("hi"), FactSet(), Budget(max_context_bytes=16000, max_context_tokens=16000)

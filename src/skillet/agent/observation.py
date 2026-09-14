@@ -1,19 +1,19 @@
-"""The fixed schema the labeller must speak, in the v2 primitive vocabulary.
+"""The closed observation schema the reviewing agent must speak.
 
-The labeller now emits the *same primitives the static scanner does* — reads of a sensitive
+The agent emits the *same primitives the static scanner does* — reads of a sensitive
 resource, an outward send, an execution, a write to agent state, and the framing claims —
 so a resource or channel the model recognises but the regexes did not lands on the exact
 predicates the rules compose. This is where the LLM covers static's blind spots (an OOD
 credential store, an unusual egress, a novel injection phrasing) instead of running as a
-parallel, differently-shaped labeller.
+parallel, differently-shaped reviewer.
 
 The two hard rules from CLAUDE.md still hold and are enforced here:
 
 * **No verdict.** The vocabulary is observations only — there is no "malicious", no score.
-* **Off-schema output is dropped, not repaired**, because the labelled text is adversarial.
+* **Off-schema output is dropped, not repaired**, because the reviewed text is adversarial.
 
 Each label carries the exact `quote` it reacts to, so the fact earns a real source span
-(the quote is located back in the chunk) and a fabricated quote simply fails to anchor.
+anchored in previously read source; a fabricated quote simply fails to anchor.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-# The closed label vocabulary. Each maps to a primitive fact in labeller._LABEL_MAP. Flat
-# labels (rather than predicate+args) keep the model's job simple and validation strict.
+# The closed label vocabulary. Each maps to a primitive fact admitted by agent.tools.
+# Flat labels (rather than predicate+args) keep the model's job simple and validation strict.
 Observation = Literal[
     "reads_sensitive",  # reads credentials, keys, tokens, secrets
     "reads_personal",  # reads user PII, conversation/context, browser data
@@ -50,6 +50,8 @@ class Label(BaseModel):
 
 
 class ChunkLabels(BaseModel):
+    """A batch of labels submitted through the final structured `finish` payload."""
+
     model_config = {"extra": "forbid"}
 
     labels: list[Label] = Field(default_factory=list, max_length=24)

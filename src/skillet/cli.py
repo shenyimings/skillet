@@ -22,7 +22,7 @@ console = Console()
 _DETECTORS = {
     "keyword": baselines.keyword_baseline,
     "always-benign": baselines.always_benign,
-    "engine-static": engine_detector(use_llm=False),
+    "engine-static": engine_detector(),
 }
 
 

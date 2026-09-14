@@ -9,9 +9,10 @@ skill package
    ├─ static extraction  (facts/)     language-agnostic + Python AST
    │     frontmatter · include graph · literal/resource scan
    │
-   ├─ semantic labelling (llm/)        one call per chunk, schema-constrained
+   ├─ semantic review (agent/, v3)     bounded Pi review, closed observation schema
    │     Imperative · TargetsSensitive · Egress · AuthorityClaim
    │     Concealment · Persistence          (optional; static-only works too)
+   │     (v1-v2 used a per-chunk labeller in llm/, removed in v3)
    │
    └─ Datalog evaluation (engine/)    rules from dsl/, provenance kept
          Alert(kind)  ── justification tree ──▶  source spans

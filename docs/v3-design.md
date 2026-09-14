@@ -104,9 +104,13 @@ co-presence finding; it does not remove read/network facts. The lower-severity c
 rule remains for unresolved secret/outbound pairs, with wording that explicitly says
 dataflow is unconfirmed. `datalog.py` remains the deterministic rule/provenance interpreter.
 
-`chunk.py` remains only for explicit legacy replay/comparison. The default scan does not
-call it, and passing the old `client=` requires `legacy=True`. Legacy tests keep their
-historical behavior; the live CLI `--llm` is now an alias for `--agent`. Unbounded
+The legacy per-chunk labeller (`llm/`) has been removed entirely: the default scan never
+called it, its client could only be reached through an explicit `legacy=True` opt-in, and
+audit replay never depended on it (replay reproduces the *static extraction* semantics of
+each schema version through `facts/`, not the labelling client). The closed observation
+schema the Pi host validates against lives on as `agent/observation.py`. `scan(legacy=True)`
+still keeps the older static extraction semantics for reproducing historical static results.
+The live CLI `--llm` remains an alias for `--agent`. Unbounded
 `bench --detector engine-llm` has been removed. Batch evaluations use an explicitly frozen sample list, preserve per-case audit/usage,
 and do not impose a cumulative token budget by default.
 

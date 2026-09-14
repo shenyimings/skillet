@@ -1,6 +1,7 @@
 // Pi owns the tool loop; Python owns all capabilities, evidence, budgets and storage.
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
+import { platform, release, arch } from "node:os";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createModels, createProvider, envApiKeyAuth } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -41,6 +42,7 @@ const model = {
 models.setProvider(createProvider({
   id: "skillet", name: "Skillet", baseUrl: config.base_url,
   auth: { apiKey: envApiKeyAuth("Skillet key", ["SKILLET_LLM_API_KEY"]) },
+  headers: { "User-Agent": `pi (${platform()} ${release()}; ${arch()})` },
   models: [model], api: openAICompletionsApi(),
 }));
 
