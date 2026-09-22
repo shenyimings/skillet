@@ -675,9 +675,7 @@ dev	suspicious	NickCrew/claude-ctx-plugin	bb47af79ad3befe01ae01940fcf5f16e30a1b6
 dev	suspicious	NickCrew/claude-ctx-plugin	bb47af79ad3befe01ae01940fcf5f16e30a1b6df	skills/ux-researcher
 dev	suspicious	robertotcestari/financeiro-ratc	d86ab73ea7efa7912ce0568c35baecca87bfa079	.agents/skills/browser-to-api
 dev	suspicious	robertotcestari/financeiro-ratc	d86ab73ea7efa7912ce0568c35baecca87bfa079	.agents/skills/production-ssh-access
-dev	suspicious	robertotcestari/financeiro-ratc	d86ab73ea7efa7912ce0568c35baecca87bfa079	.agents/skills/sicredi-ofx-download
 dev	suspicious	robertotcestari/financeiro-ratc	d86ab73ea7efa7912ce0568c35baecca87bfa079	skills/production-ssh-access
-dev	suspicious	robertotcestari/financeiro-ratc	d86ab73ea7efa7912ce0568c35baecca87bfa079	skills/relatorio-mensal
 dev	suspicious	alexsandrocruz/ZenPowers	fd830d5ee1c73efb79cc163e1cf1717fa4eab10f	skills/condition-based-waiting
 dev	suspicious	alexsandrocruz/ZenPowers	fd830d5ee1c73efb79cc163e1cf1717fa4eab10f	skills/sharing-skills
 dev	suspicious	alexsandrocruz/ZenPowers	fd830d5ee1c73efb79cc163e1cf1717fa4eab10f	skills/test-driven-development
